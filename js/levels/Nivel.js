@@ -31,7 +31,11 @@ export class Nivel {
       worldWidth,
       spawn: { ...spawn },
       platforms: platforms.map(([x, y, width, height = 28, color]) => new Plataforma(x, y, width, height, color)),
-      stars: stars.map(([x, y]) => new Estrella(x, y)),
+      stars: stars.map(([x, y], index) => {
+        const star = new Estrella(x, y);
+        star.id = `campaign:chapter-${this.id}:zone-${id}:star-${index + 1}`;
+        return star;
+      }),
       enemies: enemies.map(([x, y, patrolStart, patrolEnd, type]) => new Enemigo(x, y, patrolStart, patrolEnd, type)),
       goal,
       ...properties,

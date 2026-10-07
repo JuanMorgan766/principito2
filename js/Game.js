@@ -5,6 +5,7 @@ import { Zorro } from "./entities/Zorro.js";
 import { Nivel1 } from "./levels/Nivel1.js";
 import { Nivel2 } from "./levels/Nivel2.js";
 import { Nivel3 } from "./levels/Nivel3.js";
+import { Nivel4 } from "./levels/Nivel4.js";
 import { Camera } from "./systems/Camera.js";
 import { CollisionSystem } from "./systems/CollisionSystem.js";
 import { InputManager } from "./systems/InputManager.js";
@@ -15,10 +16,38 @@ import { JefeFinal } from "./entities/JefeFinal.js";
 import { Juan } from "./entities/Juan.js";
 import { finalPoem } from "./data/finalPoem.js";
 import { credits } from "./data/credits.js";
+import { Eren } from "./entities/Eren.js";
+import { Mikasa } from "./entities/Mikasa.js";
+import { KanyeWest } from "./entities/KanyeWest.js";
+import { ErenTitan } from "./entities/ErenTitan.js";
+import { ProgressionManager } from "./systems/ProgressionManager.js";
+import { bookPages, giftImages } from "./data/extraContent.js";
 
 const UNLOCK_KEY = "principito-isabela-desbloqueada";
 const DIFFICULTY_KEY = "principito-dificultad";
 const FINAL_CARD_DURATION = 15;
+const CHARACTER_TYPES = {
+  Principito,
+  Isabela,
+  Eren,
+  Mikasa,
+  "Kanye West": KanyeWest,
+  "Eren Titan": ErenTitan,
+};
+const CHARACTER_UNLOCK_KEYS = {
+  Eren: "eren",
+  Mikasa: "mikasa",
+  "Kanye West": "kanye",
+  "Eren Titan": "erenTitan",
+};
+const CHARACTER_LABELS = {
+  Principito: "EL PRINCIPITO",
+  Isabela: "ISABELA",
+  Eren: "EREN",
+  Mikasa: "MIKASA",
+  "Kanye West": "KANYE WEST",
+  "Eren Titan": "EREN TITAN",
+};
 const DIFFICULTIES = {
   facil: { label: "FÁCIL", enemySpeed: 0.9 },
   normal: { label: "NORMAL", enemySpeed: 1 },
@@ -38,7 +67,17 @@ export class Game {
     this.bindDeveloperCodePanel();
     this.audio = new AudioManager();
     this.selectedCharacter = "Principito";
+    this.progression = new ProgressionManager();
+    this.developerMode = this.progression.data.developerUnlockAll;
     this.isIsabelaUnlocked = this.readIsabelaUnlock();
+    if (this.isIsabelaUnlocked) this.progression.completeCampaign();
+    this.refreshProgressionUnlocks();
+    this.campaignStarTotal = this.getCampaignStarTotal();
+    this.progression.setTotalStars(this.campaignStarTotal);
+    this.progression.registerCollection("campaignStars", this.getCampaignStarIds());
+    this.progression.registerCollection("gifts", giftImages.map((gift) => gift.src));
+    this.progression.registerCollection("bookPages", bookPages.map((page, index) => page.id ?? `page-${index + 1}`));
+    this.refreshProgressionUnlocks();
     this.difficulty = this.readDifficulty();
     this.lives = 3;
     this.levelNumber = 1;
@@ -64,10 +103,17 @@ export class Game {
     this.starsCollected = 0;
     this.message = "";
     this.messageTime = 0;
+    this.menuView = "main";
+    this.menuCursor = 0;
+    this.bookPageIndex = 0;
+    this.giftIndex = 0;
+    this.giftViewerOpen = false;
+    this.giftImageCache = new Map();
     this.visualTime = 0;
     this.zoneTransition = null;
     this.fullscreenRequestPending = false;
     this.canvas.addEventListener("pointerdown", (event) => this.handleCanvasClick(event));
+    document.addEventListener("keydown", (event) => this.handleMenuNavigation(event));
     document.addEventListener("pointerdown", () => {
       this.audio.unlock();
       this.requestMobileFullscreen();
@@ -115,14 +161,82 @@ export class Game {
   createLevel(number) {
     if (number === 1) return new Nivel1();
     if (number === 2) return new Nivel2();
-    return new Nivel3();
+    if (number === 3) return new Nivel3();
+    return new Nivel4();
   }
 
   createCharacter(spawn) {
-    return this.selectedCharacter === "Isabela" ? new Isabela(spawn.x, spawn.y) : new Principito(spawn.x, spawn.y);
+    if (!this.isCharacterUnlocked(this.selectedCharacter)) this.selectedCharacter = "Principito";
+    const CharacterType = CHARACTER_TYPES[this.selectedCharacter] ?? Principito;
+    const character = new CharacterType(spawn.x, spawn.y);
+    character.y = this.getCharacterSpawnY(spawn.y, character);
+    character.previousY = character.y;
+    return character;
+  }
+
+  getCharacterSpawnY(spawnY, character = this.personajeActual) {
+    // Los puntos del mapa se diseñaron para un personaje de 148 px. Alinear
+    // los pies evita que personajes más altos nazcan atravesando plataformas.
+    return spawnY - Math.max(0, (character?.height ?? 148) - 148);
+  }
+
+  respawnCharacter(spawn) {
+    if (!this.personajeActual) return;
+    this.personajeActual.respawn(spawn.x, this.getCharacterSpawnY(spawn.y, this.personajeActual));
+  }
+
+  getCampaignStarTotal() {
+    return [new Nivel1(), new Nivel2(), new Nivel3()]
+      .reduce((total, level) => total + level.zones.reduce((zoneTotal, zone) => zoneTotal + zone.stars.length, 0), 0);
+  }
+
+  getCampaignStarIds() {
+    return [new Nivel1(), new Nivel2(), new Nivel3()]
+      .flatMap((level) => level.zones.flatMap((zone) => zone.stars.map((star) => star.id)));
+  }
+
+  refreshProgressionUnlocks() {
+    this.isExtrasUnlocked = this.progression.isUnlocked("extras");
+    this.isLevel4Unlocked = this.progression.isUnlocked("level4");
+  }
+
+  isCharacterUnlocked(character) {
+    if (this.progression.isUnlocked(CHARACTER_UNLOCK_KEYS[character] ?? `character:${character.toLowerCase().replaceAll(" ", "-")}`)) return true;
+    if (character === "Principito") return true;
+    if (character === "Isabela") return this.isIsabelaUnlocked;
+    const key = CHARACTER_UNLOCK_KEYS[character];
+    return Boolean(key && this.progression.isUnlocked(key));
+  }
+
+  selectCharacter(character) {
+    if (!CHARACTER_TYPES[character] || !this.isCharacterUnlocked(character)) return false;
+    this.selectedCharacter = character;
+    return true;
+  }
+
+  notifyProgressionUnlocks(unlocked, { finalScene = false } = {}) {
+    if (!unlocked.length) return;
+    this.refreshProgressionUnlocks();
+    const labels = {
+      eren: "¡EREN DESBLOQUEADO!",
+      erenTitan: "¡EREN TITAN DESBLOQUEADO!",
+      mikasa: "¡MIKASA DESBLOQUEADA!",
+      kanye: "¡KANYE WEST DESBLOQUEADO!",
+    };
+    const characterUnlock = [...unlocked].reverse().find((key) => labels[key]);
+    if (characterUnlock) {
+      this.latestCharacterUnlock = labels[characterUnlock];
+      if (!finalScene) this.showMessage(this.latestCharacterUnlock, 4);
+    }
+  }
+
+  recordCampaignChapter(chapter) {
+    const unlocked = this.progression.recordChapterComplete(chapter, this.difficulty);
+    this.notifyProgressionUnlocks(unlocked);
   }
 
   startLevel(number) {
+    if (number === 4 && !this.progression.isUnlocked("level4")) return false;
     this.levelNumber = number;
     this.level = this.createLevel(number);
     this.bossHitsTaken = 0;
@@ -130,16 +244,19 @@ export class Game {
     this.finalSequence = null;
     this.spawnPoint = { ...this.level.spawn };
     this.personajeActual = this.createCharacter(this.spawnPoint);
+    if (number === 4) this.level.start(this.personajeActual);
     this.personajeActual.lives = this.lives;
     this.camera = new Camera(this.canvas.width, this.level.worldWidth);
-    this.camera.follow(this.personajeActual);
-    this.zorro = new Zorro(Math.max(0, this.personajeActual.x - 110), this.personajeActual.y + this.personajeActual.height - 48);
+    if (number === 4) this.camera.x = this.level.cameraX;
+    else this.camera.follow(this.personajeActual);
+    this.zorro = number === 4 ? null : new Zorro(Math.max(0, this.personajeActual.x - 110), this.personajeActual.y + this.personajeActual.height - 48);
     this.personajeActual.lives = this.lives;
     this.projectiles = [];
     this.zoneTransition = null;
     this.starsCollected = 0;
     this.clearMessage();
     this.state = GameState.JUGANDO;
+    if (number === 4) this.audio.stopMusic();
     this.audio.playMusic(number);
     this.applyDifficultyToActiveZone();
     this.updateMobileControlsVisibility();
@@ -166,7 +283,7 @@ export class Game {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const activated = this.activateDeveloperMode(input.value);
-      if (status) status.textContent = activated ? "Modo inmortal activado" : "Código incorrecto";
+      if (status) status.textContent = activated ? "Inmortal · todo desbloqueado" : "Código incorrecto";
       if (activated) {
         input.value = "";
         input.blur?.();
@@ -187,7 +304,13 @@ export class Game {
   activateDeveloperMode(code) {
     if (String(code).trim().toLowerCase() !== "amor") return false;
     this.developerMode = true;
-    this.showMessage("MODO DESARROLLADOR · INMORTAL", 4);
+    this.progression.unlockEverything({ campaignStarIds: this.getCampaignStarIds() });
+    this.progression.registerCollection("gifts", giftImages.map((gift) => gift.src));
+    this.progression.registerCollection("bookPages", bookPages.map((page, index) => page.id ?? `page-${index + 1}`));
+    this.isIsabelaUnlocked = true;
+    try { localStorage.setItem(UNLOCK_KEY, "true"); } catch { /* El modo sigue activo en esta sesión. */ }
+    this.refreshProgressionUnlocks();
+    this.showMessage("MODO DESARROLLADOR · INMORTAL · TODO DESBLOQUEADO", 4);
     return true;
   }
 
@@ -204,6 +327,7 @@ export class Game {
 
   returnToMenu() {
     this.state = GameState.MENU;
+    this.menuView = "main";
     this.level = null;
     this.personajeActual = null;
     this.zorro = null;
@@ -247,7 +371,7 @@ export class Game {
     const controls = document.querySelector(".mobile-controls");
     if (controls) controls.classList.toggle("is-visible", this.state === GameState.JUGANDO);
     const developerPanel = document.querySelector(".developer-code");
-    if (developerPanel) developerPanel.hidden = this.state !== GameState.MENU;
+    if (developerPanel) developerPanel.hidden = this.state !== GameState.MENU || this.menuView !== "main";
     this.updateTubeEntryControl();
   }
 
@@ -255,8 +379,10 @@ export class Game {
     if (!this.personajeActual) return;
     const jumpButton = document.querySelector('[data-control="jump"]');
     const attackButton = document.querySelector('[data-control="attack"]');
+    const crouchButton = document.querySelector('[data-control="crouch"]');
     if (jumpButton) jumpButton.textContent = this.personajeActual.movementMode === "SWIMMING" ? "BRAZADA" : this.personajeActual.movementMode === "JETPACK" ? "IMPULSO" : "SALTO";
     if (attackButton) attackButton.hidden = !this.personajeActual.hasSword && !this.personajeActual.hasSling;
+    if (crouchButton) crouchButton.hidden = this.levelNumber !== 4 || this.state !== GameState.JUGANDO;
   }
 
   updateTubeEntryControl() {
@@ -283,9 +409,19 @@ export class Game {
       this.updateFinalSequence(deltaTime);
       return;
     }
+    if (this.state === GameState.GAME_OVER && this.input.consumeContinue()) {
+      if (this.levelNumber === 4) this.startLevel(4);
+      else this.startNewGame();
+      return;
+    }
     if (this.state !== GameState.JUGANDO) return;
 
     this.updateMessage(deltaTime);
+
+    if (this.levelNumber === 4) {
+      this.updateArcadeLevel(deltaTime);
+      return;
+    }
 
     if (this.zoneTransition) {
       this.zoneTransition.time = Math.max(0, this.zoneTransition.time - deltaTime);
@@ -324,13 +460,28 @@ export class Game {
     this.checkObjective();
     if (this.level.id === 1 && this.level.currentZoneIndex === 1 && this.personajeActual.y > this.canvas.height + 35) {
       if (this.developerMode) {
-        this.personajeActual.respawn(this.level.spawn.x, this.level.spawn.y);
+        this.respawnCharacter(this.level.spawn);
         this.camera.follow(this.personajeActual);
       } else this.handlePlayerDeath();
       return;
     }
     this.camera.follow(this.personajeActual);
     this.updateTubeEntryControl();
+  }
+
+  updateArcadeLevel(deltaTime) {
+    const result = this.level.update(deltaTime, this.personajeActual, this.input, this.developerMode);
+    this.camera.x = this.level.cameraX;
+    if (result.jumped) this.audio.playEffect("jump");
+    if (result.collected) this.audio.playEffect("star");
+    if (result.zoneChanged) this.audio.playEffect("interaction");
+    if (result.died) {
+      this.state = GameState.GAME_OVER;
+      this.audio.stopMusic();
+      this.updateMobileControlsVisibility();
+      return;
+    }
+    this.refreshTouchControlLabels();
   }
 
   checkAttackCollisions() {
@@ -478,6 +629,7 @@ export class Game {
       if (star.active && CollisionSystem.intersects(this.personajeActual, star)) {
         star.collect();
         this.starsCollected += 1;
+        this.notifyProgressionUnlocks(this.progression.collectStar(star.id));
         this.audio.playEffect("star");
       }
     });
@@ -515,6 +667,7 @@ export class Game {
     }
     if (this.level.goal && CollisionSystem.intersects(this.personajeActual, this.level.goal)) {
       this.audio.playEffect("victory");
+      this.recordCampaignChapter(this.level.id);
       this.state = GameState.NIVEL_COMPLETADO;
     }
   }
@@ -538,7 +691,7 @@ export class Game {
       this.zoneTransition = null;
       return;
     }
-    this.personajeActual.respawn(this.level.spawn.x, this.level.spawn.y);
+    this.respawnCharacter(this.level.spawn);
     this.personajeActual.deactivateJetpack();
     this.personajeActual.deactivateSwimming();
     if (this.level.currentZoneIndex === 1 && this.level.id === 1) {
@@ -616,13 +769,16 @@ export class Game {
 
   completeFinalCredits() {
     if (this.selectedCharacter === "Principito") this.unlockIsabela();
+    const difficultyUnlocks = this.progression.recordChapterComplete(3, this.difficulty);
+    const campaignUnlocks = this.progression.completeCampaign();
+    this.notifyProgressionUnlocks([...difficultyUnlocks, ...campaignUnlocks], { finalScene: true });
     this.finalSequence = "victory";
     this.finalTimer = 0;
   }
 
   startJetpackSection() {
     this.level.jetpackStarted = true;
-    this.personajeActual.respawn(this.level.spawn.x, this.level.spawn.y);
+    this.respawnCharacter(this.level.spawn);
     this.personajeActual.activateJetpack();
     this.personajeActual.jetpackFuelLimited = this.difficulty === "dificil";
     this.personajeActual.jetpackFuel = this.personajeActual.jetpackFuelMax;
@@ -655,7 +811,10 @@ export class Game {
       return;
     }
     if (this.state === GameState.GAME_OVER) {
-      if (y >= 400 && y <= 455) this.startNewGame();
+      if (y >= 400 && y <= 455) {
+        if (this.levelNumber === 4) this.startLevel(4);
+        else this.startNewGame();
+      }
       else if (y >= 470 && y <= 525) this.returnToMenu();
       return;
     }
@@ -668,15 +827,159 @@ export class Game {
       return;
     }
     if (this.state !== GameState.MENU) return;
-    if (y >= 295 && y <= 355) this.selectedCharacter = "Principito";
-    else if (y >= 370 && y <= 430 && this.isIsabelaUnlocked) this.selectedCharacter = "Isabela";
-    else if (y >= 462 && y <= 515) this.setDifficulty(x < 510 ? "facil" : x < 770 ? "normal" : "dificil");
-    else if (y >= 535 && y <= 590) this.startNewGame();
-    else if (this.isIsabelaUnlocked && y >= 605 && y <= 649) {
+    if (this.menuView !== "main") {
+      this.handleExtrasClick(x, y);
+      return;
+    }
+    if (y >= 194 && y <= 252) {
+      const option = this.getMainCharacterOptions()[x < this.canvas.width / 2 ? 0 : 1];
+      if (option) this.selectCharacter(option.id);
+    } else if (y >= 350 && y <= 392) this.setDifficulty(x < 426 ? "facil" : x < 853 ? "normal" : "dificil");
+    else if (y >= 419 && y <= 474) this.startNewGame();
+    else if (this.isIsabelaUnlocked && y >= 526 && y <= 570) {
       if (x >= 205 && x <= 435) this.startChapter(1);
       else if (x >= 525 && x <= 755) this.startChapter(2);
       else if (x >= 845 && x <= 1075) this.startChapter(3);
+    } else if (y >= 590 && y <= 642 && x >= 1000 && x <= 1230 && this.isExtrasUnlocked) this.openMenuView("extras");
+  }
+
+  openMenuView(view) {
+    this.menuView = view;
+    this.menuCursor = 0;
+    this.giftViewerOpen = false;
+    this.updateMobileControlsVisibility();
+  }
+
+  returnFromExtrasView() {
+    if (this.giftViewerOpen) {
+      this.giftViewerOpen = false;
+      return;
     }
+    if (this.menuView === "characters" || this.menuView === "book" || this.menuView === "gifts") {
+      this.menuView = "extras";
+      this.menuCursor = 0;
+    } else {
+      this.menuView = "main";
+      this.menuCursor = 0;
+    }
+    this.updateMobileControlsVisibility();
+  }
+
+  handleMenuNavigation(event) {
+    if (this.state !== GameState.MENU || this.menuView === "main") return;
+    if (event.key === "Escape" || event.key === "Backspace") {
+      event.preventDefault();
+      this.returnFromExtrasView();
+      return;
+    }
+    if (this.menuView === "book" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      if (!bookPages.length) return;
+      event.preventDefault();
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      this.bookPageIndex = (this.bookPageIndex + direction + bookPages.length) % bookPages.length;
+      return;
+    }
+    if (this.menuView === "gifts" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      if (!giftImages.length) return;
+      event.preventDefault();
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      this.giftIndex = (this.giftIndex + direction + giftImages.length) % giftImages.length;
+      return;
+    }
+    const itemCount = this.menuView === "extras" ? 5 : this.menuView === "characters" ? this.getCharacterOptions().length + 1 : 1;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      this.menuCursor = (this.menuCursor + 1) % itemCount;
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      this.menuCursor = (this.menuCursor - 1 + itemCount) % itemCount;
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (this.menuView === "extras") {
+        if (this.menuCursor === 0) this.openMenuView("characters");
+        else if (this.menuCursor === 1) this.openMenuView("book");
+        else if (this.menuCursor === 2) this.openMenuView("gifts");
+        else if (this.menuCursor === 3 && this.isLevel4Unlocked) this.startLevel(4);
+        else if (this.menuCursor === 4) this.returnFromExtrasView();
+      } else if (this.menuView === "characters") {
+        const option = this.getCharacterOptions()[this.menuCursor];
+        if (option) this.selectCharacter(option.id);
+        else this.returnFromExtrasView();
+      }
+    }
+  }
+
+  handleExtrasClick(x, y) {
+    if (this.menuView === "extras") {
+      if (x < 440 || x > 840) return;
+      if (y >= 186 && y <= 254) this.openMenuView("characters");
+      else if (y >= 268 && y <= 336) this.openMenuView("book");
+      else if (y >= 350 && y <= 418) this.openMenuView("gifts");
+      else if (y >= 432 && y <= 500 && this.isLevel4Unlocked) this.startLevel(4);
+      else if (y >= 514 && y <= 582) this.returnFromExtrasView();
+      return;
+    }
+    if (this.menuView === "characters") {
+      if (y >= 150 && y <= 375) {
+        const row = y < 270 ? 0 : 1;
+        const column = Math.min(2, Math.max(0, Math.floor(x / (this.canvas.width / 3))));
+        const option = this.getCharacterOptions()[row * 3 + column];
+        if (option) this.selectCharacter(option.id);
+      } else if (y >= 570 && y <= 640 && x >= 440 && x <= 840) this.returnFromExtrasView();
+      return;
+    }
+    if (this.menuView === "book") {
+      if (y >= 570 && y <= 640) {
+        if (x < 450) this.returnFromExtrasView();
+        else if (bookPages.length && x < 640) this.bookPageIndex = Math.max(0, this.bookPageIndex - 1);
+        else if (bookPages.length && x < 830) this.bookPageIndex = Math.min(bookPages.length - 1, this.bookPageIndex + 1);
+      }
+      return;
+    }
+    if (this.menuView === "gifts") {
+      if (y >= 570 && y <= 640) {
+        if (x < 450) this.returnFromExtrasView();
+        else if (giftImages.length && x < 640) this.giftIndex = (this.giftIndex - 1 + giftImages.length) % giftImages.length;
+        else if (giftImages.length && x < 830) this.giftIndex = (this.giftIndex + 1) % giftImages.length;
+        else if (this.giftViewerOpen && x <= 1070) this.returnFromExtrasView();
+        return;
+      }
+      if (giftImages.length && x >= 160 && x <= 1120 && y >= 145 && y <= 540) {
+        if (this.giftViewerOpen) this.giftViewerOpen = false;
+        else this.giftViewerOpen = true;
+      }
+    }
+  }
+
+  getGiftImage(gift) {
+    if (!gift?.src || typeof Image !== "function") return null;
+    if (!this.giftImageCache.has(gift.src)) {
+      const image = new Image();
+      image.src = gift.src;
+      this.giftImageCache.set(gift.src, image);
+    }
+    const image = this.giftImageCache.get(gift.src);
+    return image.complete && image.naturalWidth > 0 ? image : null;
+  }
+
+  getCharacterOptions() {
+    return ["Principito", "Isabela", "Eren", "Mikasa", "Kanye West", "Eren Titan"]
+      .map((id) => ({ id, label: CHARACTER_LABELS[id], unlocked: this.isCharacterUnlocked(id) }));
+  }
+
+  getMainCharacterOptions() {
+    return this.getCharacterOptions().slice(0, 2);
+  }
+
+  getCharacterRequirement(character) {
+    if (this.isCharacterUnlocked(character)) return "DISPONIBLE";
+    return {
+      Isabela: "Completa la campaña para desbloquearla",
+      Eren: "Desbloqueo: 70% de estrellas únicas",
+      "Eren Titan": "Desbloqueo: 100% de estrellas únicas",
+      Mikasa: "Desbloqueo: campaña completa en NORMAL",
+      "Kanye West": "Desbloqueo: campaña completa en DIFÍCIL",
+    }[character] ?? "Bloqueado";
   }
 
   render() {
@@ -686,7 +989,8 @@ export class Game {
     if (this.state === GameState.MENU) return this.drawMenu();
     if (this.state === GameState.FINAL) return this.drawFinalScene();
     this.drawBackground();
-    context.save(); context.translate(-this.camera.x, 0); this.drawWorld(); context.restore();
+    if (this.level.id === 4) this.level.drawWorld(context, canvas, this.camera.x, this.personajeActual, this.visualTime);
+    else { context.save(); context.translate(-this.camera.x, 0); this.drawWorld(); context.restore(); }
     this.drawInterface();
   }
 
@@ -721,6 +1025,10 @@ export class Game {
   }
 
   drawBackground() {
+    if (this.level.id === 4) {
+      this.level.drawBackground(this.context, this.canvas, this.camera.x, this.visualTime);
+      return;
+    }
     if (this.level.id === 1) {
       this.level1Renderer.drawBackground(this.context, this.canvas, this.camera.x, this.level.currentZoneIndex, this.visualTime);
       return;
@@ -1236,7 +1544,9 @@ export class Game {
       return;
     }
     if (this.finalSequence === "victory") {
-      this.drawOverlay("VIAJE COMPLETADO", this.selectedCharacter === "Principito" ? "Isabela ya está disponible · pulsa Enter para volver al menú" : "Las estrellas guardarán este viaje · pulsa Enter para volver al menú");
+      const rewards = ["EXTRAS", "Nivel 4", this.latestCharacterUnlock].filter(Boolean).join(" · ");
+      const returnPrompt = "Pulsa Enter para volver al menú";
+      this.drawOverlay("CAMPAÑA COMPLETADA", `${rewards} · ${returnPrompt}`);
     }
   }
 
@@ -1263,6 +1573,10 @@ export class Game {
   }
 
   drawInterface() {
+    if (this.level.id === 4) {
+      this.drawArcadeInterface();
+      return;
+    }
     const c = this.context;
     const panel = c.createLinearGradient(20, 18, 20, 170);
     panel.addColorStop(0, "rgb(20 30 53 / 88%)"); panel.addColorStop(1, "rgb(16 43 58 / 70%)");
@@ -1307,6 +1621,42 @@ export class Game {
     if (this.state === GameState.PAUSA) this.drawPauseScreen();
     if (this.state === GameState.GAME_OVER) this.drawGameOverScreen();
     if (this.zoneTransition) this.drawZoneTransition();
+  }
+
+  drawArcadeInterface() {
+    const c = this.context;
+    c.fillStyle = "rgb(20 27 45 / 78%)"; c.beginPath(); c.roundRect(22, 20, 330, 105, 14); c.fill();
+    c.strokeStyle = "rgb(255 231 159 / 60%)"; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = "#fff0c5"; c.textAlign = "left"; c.font = "bold 15px Arial"; c.fillText("PUNTUACIÓN", 42, 47);
+    c.font = "bold 32px Arial"; c.fillText(String(this.level.score).padStart(6, "0"), 42, 82);
+    c.fillStyle = "#dbe8e7"; c.font = "14px Arial"; c.fillText(`RÉCORD ${String(this.level.bestScore).padStart(6, "0")}`, 42, 108);
+    c.fillStyle = "rgb(20 27 45 / 78%)"; c.beginPath(); c.roundRect(this.canvas.width - 280, 20, 258, 66, 14); c.fill();
+    c.strokeStyle = "rgb(255 231 159 / 60%)"; c.lineWidth = 1; c.stroke();
+    c.fillStyle = "#fff0c5"; c.font = "bold 23px Arial"; c.textAlign = "center";
+    c.fillText(`${Math.floor(this.level.distance)} m`, this.canvas.width - 151, 49);
+    c.fillStyle = "#d9d4cc"; c.font = "13px Arial"; c.fillText(this.level.zone.name, this.canvas.width - 151, 72);
+    if (this.developerMode) {
+      c.fillStyle = "rgb(55 35 62 / 90%)"; c.beginPath(); c.roundRect(this.canvas.width / 2 - 132, 18, 264, 32, 13); c.fill();
+      c.fillStyle = "#ffe0ff"; c.font = "bold 12px Arial"; c.fillText("MODO DESARROLLADOR · INMORTAL", this.canvas.width / 2, 39);
+    }
+    c.fillStyle = "rgb(16 26 48 / 68%)"; c.beginPath(); c.roundRect(this.canvas.width / 2 - 248, this.canvas.height - 48, 496, 30, 12); c.fill();
+    c.fillStyle = "#fff7d8"; c.font = "14px Arial"; c.fillText("← / → ritmo   ·   S / ↓ agacharse   ·   ESPACIO saltar", this.canvas.width / 2, this.canvas.height - 28);
+    if (this.message) {
+      c.fillStyle = "#fff4ce"; c.font = "bold 22px Georgia"; c.fillText(this.message, this.canvas.width / 2, 164);
+    }
+    if (this.state === GameState.PAUSA) this.drawPauseScreen();
+    if (this.state === GameState.GAME_OVER) this.drawArcadeGameOver();
+  }
+
+  drawArcadeGameOver() {
+    const c = this.context;
+    c.fillStyle = "rgb(8 10 24 / 80%)"; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    c.textAlign = "center"; c.fillStyle = "#fff7c2"; c.font = "bold 62px Arial"; c.fillText("FIN DE LA CARRERA", this.canvas.width / 2, 285);
+    c.fillStyle = "#f8ead1"; c.font = "25px Arial";
+    c.fillText(`Puntuación ${String(this.level.score).padStart(6, "0")}   ·   Distancia ${Math.floor(this.level.distance)} m`, this.canvas.width / 2, 340);
+    c.fillStyle = "#ffe5a7"; c.font = "bold 18px Arial"; c.fillText(`RÉCORD ${String(this.level.bestScore).padStart(6, "0")}`, this.canvas.width / 2, 375);
+    this.drawOverlayButton("NUEVA CARRERA", 430, "#355d75");
+    this.drawOverlayButton("MENÚ PRINCIPAL", 500, "#5a4364");
   }
 
   drawHudStat(label, icon, value, x, y, textColor, accentColor) {
@@ -1388,26 +1738,175 @@ export class Game {
   }
 
   drawMenu() {
+    if (this.menuView === "extras") return this.drawExtrasMenu();
+    if (this.menuView === "characters") return this.drawExtrasCharacters();
+    if (this.menuView === "book") return this.drawBookViewer();
+    if (this.menuView === "gifts") return this.drawGiftGallery();
     const c = this.context; const g = c.createLinearGradient(0, 0, 0, this.canvas.height); g.addColorStop(0, "#172846"); g.addColorStop(0.55, "#4c4a74"); g.addColorStop(1, "#8a5268"); c.fillStyle = g; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
     c.save(); c.fillStyle = "#ffe7a4"; c.globalAlpha = 0.82; c.beginPath(); c.arc(1110, 240, 54, 0, Math.PI * 2); c.fill(); c.fillStyle = "#fff7d3"; for (let index = 0; index < 38; index += 1) { const x = (index * 149 + 43) % this.canvas.width; const y = 25 + (index * 71) % 430; c.globalAlpha = 0.25 + (index % 3) * 0.15; c.fillRect(x, y, 2, 2); } c.restore();
     c.fillStyle = "rgb(18 45 62 / 32%)"; c.beginPath(); c.ellipse(170, 675, 310, 115, 0, Math.PI, Math.PI * 2); c.ellipse(1110, 675, 340, 130, 0, Math.PI, Math.PI * 2); c.fill();
-    c.textAlign = "center"; c.fillStyle = "#fff4c4"; c.font = "bold 68px Georgia"; c.fillText("PRINCIPITO", this.canvas.width / 2, 120); c.font = "italic 27px Georgia"; c.fillText("La aventura para llegar a Neiva", this.canvas.width / 2, 165); c.font = "bold 25px Arial"; c.fillStyle = "#ffffff"; c.fillText("PERSONAJE", this.canvas.width / 2, 255);
-    this.drawMenuButton("EL PRINCIPITO", 325, this.selectedCharacter === "Principito", false); this.drawMenuButton(this.isIsabelaUnlocked ? "ISABELA" : "ISABELA  🔒", 400, this.selectedCharacter === "Isabela", !this.isIsabelaUnlocked);
-    c.font = "bold 18px Arial"; c.fillStyle = "#fff7c2"; c.fillText("DIFICULTAD", this.canvas.width / 2, 455);
-    this.drawDifficultyButton("FÁCIL", 405, this.difficulty === "facil");
+    c.textAlign = "center"; c.fillStyle = "#fff4c4"; c.font = "bold 58px Georgia"; c.fillText("PRINCIPITO", this.canvas.width / 2, 78); c.font = "italic 23px Georgia"; c.fillText("La aventura para llegar a Neiva", this.canvas.width / 2, 117); c.font = "bold 22px Arial"; c.fillStyle = "#ffffff"; c.fillText("PERSONAJES", this.canvas.width / 2, 165);
+    const characterOptions = this.getMainCharacterOptions();
+    const columnCenters = [430, 850];
+    characterOptions.forEach((option, index) => {
+      this.drawCharacterButton(option.label, columnCenters[index], 214, this.selectedCharacter === option.id, !option.unlocked);
+      if (!option.unlocked) {
+        c.fillStyle = "#ffe4c0"; c.font = "12px Arial"; c.textAlign = "center";
+        c.fillText(this.getCharacterRequirement(option.id), columnCenters[index], 248);
+      }
+    });
+    const starProgress = this.progression.getStarProgress();
+    c.font = "14px Arial"; c.fillStyle = "#eee4ce";
+    c.fillText(`Estrellas únicas: ${starProgress.obtained}/${starProgress.total} · Eren 70% · Eren Titan 100%`, this.canvas.width / 2, 310);
+    c.font = "bold 17px Arial"; c.fillStyle = "#fff7c2"; c.fillText("DIFICULTAD", this.canvas.width / 2, 339);
+    this.drawDifficultyButton("FÁCIL", 220, this.difficulty === "facil");
     this.drawDifficultyButton("NORMAL", 640, this.difficulty === "normal");
-    this.drawDifficultyButton("DIFÍCIL", 875, this.difficulty === "dificil");
-    this.drawMenuButton("INICIAR VIAJE", 565, false, false);
+    this.drawDifficultyButton("DIFÍCIL", 1060, this.difficulty === "dificil");
+    this.drawMenuButton("INICIAR VIAJE", 447, false, false);
     if (this.isIsabelaUnlocked) {
-      c.font = "16px Arial"; c.fillStyle = "#fff7c2"; c.fillText("REJUGAR", this.canvas.width / 2, 615);
+      c.font = "15px Arial"; c.fillStyle = "#fff7c2"; c.fillText("REJUGAR CAMPAÑA", this.canvas.width / 2, 516);
       this.drawReplayButton("CAPÍTULO 1", 320);
       this.drawReplayButton("CAPÍTULO 2", 640);
       this.drawReplayButton("CAPÍTULO 3", 960);
     } else {
-      c.font = "18px Arial"; c.fillStyle = "#fff7c2"; c.fillText("Desbloquea a Isabela al completar el Capítulo 3", this.canvas.width / 2, 635);
+      c.font = "15px Arial"; c.fillStyle = "#fff7c2"; c.fillText("Completa la campaña para habilitar EXTRAS y el Nivel 4", this.canvas.width / 2, 551);
     }
-    c.font = "18px Arial"; c.fillStyle = "#e9d5ff"; c.fillText("A/D o flechas para moverte · Espacio para saltar", this.canvas.width / 2, 680);
+    c.font = "16px Arial"; c.fillStyle = "#e9d5ff"; c.fillText("A/D o flechas para moverte · Espacio para saltar", this.canvas.width / 2, 615);
+    this.drawExtrasEntry();
     c.textAlign = "right"; c.font = "italic 16px Georgia"; c.fillStyle = "#fff1c7"; c.fillText("Hecho para mi Izzyta", this.canvas.width - 28, this.canvas.height - 24);
+  }
+
+  drawMenuBackdrop(title, subtitle = "") {
+    const c = this.context;
+    const gradient = c.createLinearGradient(0, 0, 0, this.canvas.height);
+    gradient.addColorStop(0, "#172846"); gradient.addColorStop(0.55, "#4c4a74"); gradient.addColorStop(1, "#8a5268");
+    c.fillStyle = gradient; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    c.fillStyle = "rgb(18 45 62 / 35%)"; c.beginPath(); c.ellipse(170, 675, 310, 115, 0, Math.PI, Math.PI * 2); c.ellipse(1110, 675, 340, 130, 0, Math.PI, Math.PI * 2); c.fill();
+    for (let index = 0; index < 38; index += 1) {
+      c.globalAlpha = 0.25 + (index % 3) * 0.12;
+      c.fillStyle = "#fff2c7"; c.fillRect((index * 149 + 43) % this.canvas.width, 25 + (index * 71) % 430, 2, 2);
+    }
+    c.globalAlpha = 1;
+    c.textAlign = "center"; c.fillStyle = "#fff4c4"; c.font = "bold 46px Georgia"; c.fillText(title, this.canvas.width / 2, 82);
+    if (subtitle) { c.fillStyle = "#f2ddc0"; c.font = "italic 18px Georgia"; c.fillText(subtitle, this.canvas.width / 2, 116); }
+  }
+
+  drawExtrasEntry() {
+    const c = this.context;
+    const x = 1008; const y = 590; const width = 220; const height = 48;
+    c.fillStyle = this.isExtrasUnlocked ? "#365d78" : "#3d4257";
+    c.beginPath(); c.roundRect(x, y, width, height, 10); c.fill();
+    c.strokeStyle = this.isExtrasUnlocked ? "#c3dfd3" : "#8b8995"; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = this.isExtrasUnlocked ? "#fff7d7" : "#c7c3cc"; c.font = "bold 16px Arial"; c.textAlign = "center";
+    c.fillText(this.isExtrasUnlocked ? "EXTRAS" : "EXTRAS 🔒", x + width / 2, y + 29);
+  }
+
+  drawExtrasMenu() {
+    const c = this.context;
+    this.drawMenuBackdrop("EXTRAS", "Un espacio para personajes, lectura y recuerdos");
+    const entries = ["PERSONAJES", "EL LIBRO", "REGALOS", this.isLevel4Unlocked ? "NIVEL 4 · ARCADE INFINITO" : "NIVEL 4 🔒", "VOLVER"];
+    entries.forEach((label, index) => {
+      this.drawExtrasButton(label, 220 + index * 82, index === this.menuCursor, 400, 58, index === 3 ? 16 : 20);
+    });
+    c.fillStyle = "#fff1c7"; c.font = "italic 16px Georgia"; c.textAlign = "right"; c.fillText("Hecho para mi Izzyta", this.canvas.width - 28, this.canvas.height - 24);
+  }
+
+  drawExtrasCharacters() {
+    const c = this.context;
+    this.drawMenuBackdrop("PERSONAJES", "Elige quién continuará este viaje");
+    this.getCharacterOptions().forEach((option, index) => {
+      const centerX = [220, 640, 1060][index % 3];
+      const centerY = index < 3 ? 220 : 320;
+      this.drawCharacterButton(option.label, centerX, centerY, this.selectedCharacter === option.id, !option.unlocked);
+      c.fillStyle = option.unlocked ? "#dbe8d3" : "#ffe4c0"; c.font = "12px Arial"; c.textAlign = "center";
+      c.fillText(this.getCharacterRequirement(option.id), centerX, centerY + 34);
+      if (this.menuCursor === index) {
+        c.strokeStyle = "#fff3be"; c.lineWidth = 2; c.strokeRect(centerX - 120, centerY - 24, 240, 48);
+      }
+    });
+    this.drawExtrasButton("VOLVER", 610, this.menuCursor === this.getCharacterOptions().length);
+  }
+
+  drawBookViewer() {
+    const c = this.context;
+    this.drawMenuBackdrop("EL LIBRO", bookPages.length ? `Página ${this.bookPageIndex + 1} de ${bookPages.length} · ← →` : "Visor listo para el contenido que proporciones");
+    c.fillStyle = "rgb(18 30 50 / 82%)"; c.beginPath(); c.roundRect(180, 145, 920, 385, 16); c.fill();
+    c.strokeStyle = "#d3b77f"; c.lineWidth = 2; c.stroke();
+    c.textAlign = "center"; c.fillStyle = "#fff0ca"; c.font = "bold 27px Georgia";
+    if (bookPages.length) {
+      const page = bookPages[this.bookPageIndex];
+      c.fillText(page.title ?? `Página ${this.bookPageIndex + 1}`, this.canvas.width / 2, 198);
+      c.textAlign = "left"; c.fillStyle = "#f4ead6"; c.font = "20px Georgia";
+      this.wrapCanvasText(page.text ?? "", 250, 245, 780, 31, 78).forEach((line, index) => c.fillText(line, 250, 245 + index * 31));
+    } else {
+      c.fillText("El contenido del libro aún no está en el proyecto.", this.canvas.width / 2, 310);
+      c.fillStyle = "#d8d2de"; c.font = "18px Arial";
+      c.fillText("Cuando se proporcione, se añadirá por páginas sin cambiar este visor.", this.canvas.width / 2, 350);
+    }
+    this.drawExtrasButton("VOLVER", 600, false, 190, 44, 18, 320);
+    if (bookPages.length) {
+      this.drawExtrasButton("ANTERIOR", 600, false, 190, 44, 16, 550);
+      this.drawExtrasButton("SIGUIENTE", 600, false, 190, 44, 16, 760);
+    }
+  }
+
+  wrapCanvasText(text, x, y, maxWidth, lineHeight, maxChars) {
+    const words = String(text).split(/\s+/).filter(Boolean);
+    const lines = []; let line = "";
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (candidate.length > maxChars || (line && this.context.measureText(candidate).width > maxWidth)) {
+        lines.push(line); line = word;
+      } else line = candidate;
+    }
+    if (line) lines.push(line);
+    return lines.slice(0, Math.max(1, Math.floor((530 - y) / lineHeight)));
+  }
+
+  drawGiftGallery() {
+    const c = this.context;
+    this.drawMenuBackdrop(this.giftViewerOpen ? "REGALO" : "REGALOS", giftImages.length ? `Recuerdo ${this.giftIndex + 1} de ${giftImages.length} · toca la imagen para ampliar` : "Galería preparada para las imágenes que proporciones");
+    if (!giftImages.length) {
+      c.fillStyle = "rgb(18 30 50 / 82%)"; c.beginPath(); c.roundRect(180, 165, 920, 350, 16); c.fill();
+      c.strokeStyle = "#d3b77f"; c.lineWidth = 2; c.stroke(); c.textAlign = "center"; c.fillStyle = "#fff0ca"; c.font = "bold 25px Georgia";
+      c.fillText("Aún no hay imágenes de regalos", this.canvas.width / 2, 315);
+      c.fillStyle = "#d8d2de"; c.font = "18px Arial"; c.fillText("Las imágenes personales se agregan en assets/regalos.", this.canvas.width / 2, 355);
+    } else {
+      const gift = giftImages[this.giftIndex]; const image = this.getGiftImage(gift);
+      if (image) {
+        const maxWidth = this.giftViewerOpen ? 1180 : 880; const maxHeight = this.giftViewerOpen ? 530 : 410;
+        const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+        const width = image.naturalWidth * scale; const height = image.naturalHeight * scale;
+        c.drawImage(image, (this.canvas.width - width) / 2, 145 + (420 - height) / 2, width, height);
+      } else {
+        c.fillStyle = "#f4ead6"; c.font = "20px Arial"; c.textAlign = "center"; c.fillText("Cargando imagen…", this.canvas.width / 2, 350);
+      }
+    }
+    this.drawExtrasButton("VOLVER", 600, false, 190, 44, 18, 320);
+    if (giftImages.length) {
+      this.drawExtrasButton("ANTERIOR", 600, false, 190, 44, 16, 550);
+      this.drawExtrasButton("SIGUIENTE", 600, false, 190, 44, 16, 760);
+      if (this.giftViewerOpen) this.drawExtrasButton("CERRAR", 600, false, 160, 44, 16, 980);
+    }
+  }
+
+  drawExtrasButton(label, y, selected = false, width = 400, height = 62, fontSize = 20, centerX = this.canvas.width / 2) {
+    const c = this.context; const x = centerX - width / 2;
+    c.fillStyle = selected ? "#bd8943" : "#365d78"; c.beginPath(); c.roundRect(x, y - height / 2, width, height, 11); c.fill();
+    c.strokeStyle = selected ? "#fff0a9" : "#b9d9d3"; c.lineWidth = selected ? 2.5 : 1.5; c.stroke();
+    c.fillStyle = "#fff7d7"; c.font = `bold ${fontSize}px Arial`; c.textAlign = "center"; c.fillText(label, centerX, y + fontSize * 0.35);
+  }
+
+  drawCharacterButton(label, centerX, centerY, selected, disabled) {
+    const c = this.context;
+    const x = centerX - 116;
+    c.fillStyle = selected ? "#bd8943" : disabled ? "rgb(36 42 62 / 76%)" : "#365d78";
+    c.beginPath(); c.roundRect(x, centerY - 20, 232, 40, 9); c.fill();
+    c.strokeStyle = selected ? "#fff0a9" : disabled ? "#777687" : "#b9d9d3";
+    c.lineWidth = selected ? 2.5 : 1.5; c.stroke();
+    c.fillStyle = disabled ? "#aaa8b5" : "#fff7d7";
+    c.textAlign = "center"; c.font = "bold 17px Arial";
+    c.fillText(disabled ? `${label}  🔒` : label, centerX, centerY + 6);
   }
 
   drawMenuButton(label, y, selected, disabled) {
@@ -1416,19 +1915,19 @@ export class Game {
 
   drawDifficultyButton(label, centerX, selected) {
     const c = this.context;
-    const x = centerX - 102;
+    const x = centerX - 116;
     c.fillStyle = selected ? "#d99d45" : "#294c69";
-    c.beginPath(); c.roundRect(x, 467, 204, 38, 9); c.fill();
+    c.beginPath(); c.roundRect(x, 350, 232, 36, 9); c.fill();
     c.strokeStyle = selected ? "#fff3be" : "#8eb4c7"; c.lineWidth = 2; c.stroke();
-    c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "bold 15px Arial"; c.fillText(label, centerX, 492);
+    c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "bold 15px Arial"; c.fillText(label, centerX, 373);
   }
 
   drawReplayButton(label, centerX) {
     const c = this.context;
     const x = centerX - 115;
     c.fillStyle = "#365d78";
-    c.beginPath(); c.roundRect(x, 620, 230, 38, 9); c.fill();
+    c.beginPath(); c.roundRect(x, 526, 230, 38, 9); c.fill();
     c.strokeStyle = "#b9d9d3"; c.lineWidth = 1.5; c.stroke();
-    c.fillStyle = "#fff7d7"; c.textAlign = "center"; c.font = "bold 15px Arial"; c.fillText(label, centerX, 645);
+    c.fillStyle = "#fff7d7"; c.textAlign = "center"; c.font = "bold 15px Arial"; c.fillText(label, centerX, 551);
   }
 }

@@ -7,6 +7,8 @@ export class InputManager {
       "d",
       "arrowleft",
       "arrowright",
+      "arrowdown",
+      "s",
       "w",
       "arrowup",
       " ",
@@ -15,7 +17,7 @@ export class InputManager {
       "enter",
       "escape",
     ]);
-    this.touchControls = { left: false, right: false, up: false };
+    this.touchControls = { left: false, right: false, up: false, crouch: false };
 
     window.addEventListener("keydown", (event) => this.handleKeyDown(event));
     window.addEventListener("keyup", (event) => this.handleKeyUp(event));
@@ -50,6 +52,10 @@ export class InputManager {
     const movesUp = this.keys.has("w") || this.keys.has("arrowup") || this.keys.has(" ") || this.touchControls.up;
     const movesDown = this.keys.has("s") || this.keys.has("arrowdown");
     return Number(movesDown) - Number(movesUp);
+  }
+
+  isCrouching() {
+    return this.keys.has("s") || this.keys.has("arrowdown") || this.touchControls.crouch;
   }
 
   consumeJump() {
@@ -128,6 +134,10 @@ export class InputManager {
       this.touchControls[control] = true;
       return;
     }
+    if (control === "crouch") {
+      this.touchControls.crouch = true;
+      return;
+    }
 
     const pressedControl = {
       jump: "touch-jump",
@@ -142,6 +152,7 @@ export class InputManager {
 
   releaseTouchControl(control) {
     if (control === "left" || control === "right") this.touchControls[control] = false;
+    if (control === "crouch") this.touchControls.crouch = false;
     if (control === "jump") this.touchControls.up = false;
   }
 
@@ -149,6 +160,7 @@ export class InputManager {
     this.touchControls.left = false;
     this.touchControls.right = false;
     this.touchControls.up = false;
+    this.touchControls.crouch = false;
   }
 
   consumePressedKey(keys) {

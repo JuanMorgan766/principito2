@@ -75,12 +75,33 @@ globalThis.Audio = class {
 };
 globalThis.fetch = async () => ({ ok: false });
 globalThis.requestAnimationFrame = noop;
+globalThis.Image = class {
+  constructor() { this.complete = true; this.naturalWidth = 800; this.naturalHeight = 1200; }
+};
 
 const { Game } = await import("../js/Game.js");
 const { GameState } = await import("../js/GameState.js");
 const { Isabela } = await import("../js/entities/Isabela.js");
 const { Principito } = await import("../js/entities/Principito.js");
+const { Personaje } = await import("../js/entities/Personaje.js");
+const { Eren } = await import("../js/entities/Eren.js");
+const { Mikasa } = await import("../js/entities/Mikasa.js");
+const { KanyeWest } = await import("../js/entities/KanyeWest.js");
+const { ErenTitan } = await import("../js/entities/ErenTitan.js");
+const { ProgressionManager } = await import("../js/systems/ProgressionManager.js");
 const { AudioManager, EFFECT_FILES, MUSIC_TRACKS } = await import("../js/systems/AudioManager.js");
+const { InputManager } = await import("../js/systems/InputManager.js");
+const { giftImages } = await import("../js/data/extraContent.js");
+const { Nivel1 } = await import("../js/levels/Nivel1.js");
+const { Nivel2 } = await import("../js/levels/Nivel2.js");
+const { Nivel3 } = await import("../js/levels/Nivel3.js");
+const { Nivel4, ZONE_LENGTH } = await import("../js/levels/Nivel4.js");
+
+assert.equal(giftImages.length, 6);
+for (const gift of giftImages) {
+  const file = await readFile(new URL(`../${gift.src}`, import.meta.url));
+  assert.ok(file.length > 0, `${gift.src} should exist and be readable`);
+}
 
 // Estructura responsive y rutas de los recursos de audio para la publicación.
 const css = await readFile(new URL("../css/style.css", import.meta.url), "utf8");
@@ -92,16 +113,62 @@ assert.match(css, /html,\s*body\s*\{\s*touch-action: none;/);
 assert.match(css, /touch-action: none/);
 assert.match(css, /-webkit-user-select: none/);
 assert.match(css, /-webkit-touch-callout: none/);
+assert.match(css, /data-control="crouch"/);
 assert.match(html, /maximum-scale=1\.0, user-scalable=no/);
+assert.match(html, /data-control="crouch"/);
 assert.match(gameSource, /La aventura para llegar a Neiva/);
 assert.doesNotMatch(gameSource, /Una aventura entre planetas/);
-assert.equal(Object.keys(MUSIC_TRACKS).length, 4);
+assert.equal(Object.keys(MUSIC_TRACKS).length, 5);
+assert.ok(MUSIC_TRACKS[4].endsWith("assets/audio/music/nivel-4/nivel-4.mp3"));
 assert.equal(Object.keys(EFFECT_FILES).length, 6);
+const crouchInput = new InputManager();
+crouchInput.handleKeyDown({ key: "ArrowDown", preventDefault: noop });
+assert.equal(crouchInput.isCrouching(), true, "ArrowDown activates the arcade crouch input");
+crouchInput.handleKeyUp({ key: "ArrowDown" });
+assert.equal(crouchInput.isCrouching(), false);
+crouchInput.activateTouchControl("crouch");
+assert.equal(crouchInput.isCrouching(), true, "The mobile crouch control is supported");
+crouchInput.releaseTouchControl("crouch");
+assert.equal(crouchInput.isCrouching(), false);
 const audioCheck = new AudioManager();
 await audioCheck.unlock();
 audioCheck.playEffect("jump");
 await audioCheck.playMusic(1);
 assert.equal(audioCheck.currentTrack, null, "A missing music file must not block the game");
+
+// La progresión adicional cuenta estrellas únicas y persiste cada condición por separado.
+const expansionStorage = new Map();
+const expansionProgress = new ProgressionManager({
+  getItem: (key) => expansionStorage.get(key) ?? null,
+  setItem: (key, value) => expansionStorage.set(key, String(value)),
+});
+expansionProgress.setTotalStars(10);
+for (let index = 1; index <= 6; index += 1) expansionProgress.collectStar(`star-${index}`);
+assert.equal(expansionProgress.isUnlocked("eren"), false, "Six of ten stars must not unlock Eren");
+expansionProgress.collectStar("star-6");
+assert.equal(expansionProgress.getStarProgress().obtained, 6, "Repeating a star must not increase global progress");
+assert.equal(expansionProgress.isUnlocked("eren"), false);
+expansionProgress.collectStar("star-7");
+assert.equal(expansionProgress.isUnlocked("eren"), true, "70 percent of unique stars unlocks Eren");
+assert.equal(expansionProgress.isUnlocked("erenTitan"), false, "Eren Titan remains locked below 100 percent");
+for (let index = 8; index <= 10; index += 1) expansionProgress.collectStar(`star-${index}`);
+assert.equal(expansionProgress.isUnlocked("erenTitan"), true, "All unique stars unlock Eren Titan");
+assert.deepEqual(expansionProgress.recordChapterComplete(1, "normal"), []);
+assert.deepEqual(expansionProgress.recordChapterComplete(2, "normal"), []);
+assert.equal(expansionProgress.isUnlocked("mikasa"), false);
+assert.deepEqual(expansionProgress.recordChapterComplete(3, "normal"), ["mikasa"]);
+assert.deepEqual(expansionProgress.recordChapterComplete(1, "dificil"), []);
+assert.deepEqual(expansionProgress.recordChapterComplete(2, "dificil"), []);
+assert.equal(expansionProgress.isUnlocked("kanye"), false);
+assert.deepEqual(expansionProgress.recordChapterComplete(3, "dificil"), ["kanye"]);
+assert.deepEqual(expansionProgress.completeCampaign(), ["extras", "level4"]);
+const restoredExpansionProgress = new ProgressionManager({
+  getItem: (key) => expansionStorage.get(key) ?? null,
+  setItem: (key, value) => expansionStorage.set(key, String(value)),
+});
+for (const key of ["eren", "erenTitan", "mikasa", "kanye", "extras", "level4"]) {
+  assert.equal(restoredExpansionProgress.isUnlocked(key), true, `${key} must persist`);
+}
 
 function createCanvas() {
   return {
@@ -152,6 +219,21 @@ documentListeners.get("gesturestart")({ preventDefault: () => { safariGesturePre
 assert.equal(safariGesturePrevented, true, "Safari gesture zoom must be prevented");
 click(menuGame, 640, 400);
 assert.equal(menuGame.selectedCharacter, "Principito");
+click(menuGame, 1060, 214);
+assert.equal(menuGame.selectedCharacter, "Principito", "A locked Isabela cannot be selected");
+menuGame.render();
+assert.ok(renderedText.includes("ISABELA  🔒"), "The initial menu should retain Isabela as the only other character option");
+assert.ok(!renderedText.includes("EREN TITAN"), "Extra characters should not be listed in the initial menu");
+const { game: extrasLockedGame } = createGame();
+extrasLockedGame.progression.completeCampaign();
+extrasLockedGame.refreshProgressionUnlocks();
+click(extrasLockedGame, 1100, 615);
+click(extrasLockedGame, 640, 220);
+extrasLockedGame.render();
+assert.ok(renderedText.includes("Desbloqueo: 70% de estrellas únicas"));
+assert.ok(renderedText.includes("Desbloqueo: 100% de estrellas únicas"));
+assert.ok(renderedText.includes("Desbloqueo: campaña completa en NORMAL"));
+assert.ok(renderedText.includes("Desbloqueo: campaña completa en DIFÍCIL"));
 
 // Código de desarrollador: el botón activa inmortalidad sin gastar vidas ni reiniciar el capítulo.
 const { game: developerGame } = createGame();
@@ -165,7 +247,12 @@ let developerButtonDefaultPrevented = false;
 developerButtonListeners.get("pointerdown")({ pointerType: "touch", preventDefault: () => { developerButtonDefaultPrevented = true; } });
 assert.equal(developerButtonDefaultPrevented, true);
 assert.equal(developerGame.developerMode, true);
-assert.equal(developerCodeStatus.textContent, "Modo inmortal activado");
+assert.equal(developerCodeStatus.textContent, "Inmortal · todo desbloqueado");
+assert.equal(developerGame.isCharacterUnlocked("Isabela"), true, "The developer code unlocks Isabela immediately");
+assert.equal(developerGame.isCharacterUnlocked("Eren"), true, "The developer code unlocks current extra characters");
+assert.equal(developerGame.isExtrasUnlocked, true);
+assert.equal(developerGame.isLevel4Unlocked, true);
+assert.deepEqual(developerGame.progression.getStarProgress(), { obtained: 54, total: 54, percentage: 100 });
 developerGame.startLevel(2);
 assert.equal(developerCodeForm.hidden, true, "The code panel should be hidden during gameplay");
 developerGame.level.enemies = [{ active: true, x: developerGame.personajeActual.x, y: developerGame.personajeActual.y, width: 40, height: 40, draw: noop }];
@@ -178,22 +265,286 @@ developerGame.render();
 assert.ok(renderedText.includes("MODO DESARROLLADOR · INMORTAL"));
 developerGame.returnToMenu();
 assert.equal(developerCodeForm.hidden, false);
+click(developerGame, 1100, 615);
+assert.equal(developerGame.menuView, "extras", "The unlocked extras section opens from the menu");
+assert.equal(developerCodeForm.hidden, true, "The compact code panel stays out of submenus");
+click(developerGame, 640, 220);
+assert.equal(developerGame.menuView, "characters");
+click(developerGame, 1060, 320);
+assert.equal(developerGame.selectedCharacter, "Eren Titan", "EXTRAS can select an unlocked playable character");
+click(developerGame, 640, 610);
+assert.equal(developerGame.menuView, "extras");
+click(developerGame, 640, 302);
+assert.equal(developerGame.menuView, "book");
+developerGame.render();
+assert.ok(renderedText.includes("El contenido del libro aún no está en el proyecto."));
+click(developerGame, 320, 600);
+assert.equal(developerGame.menuView, "extras");
+click(developerGame, 640, 410);
+assert.equal(developerGame.menuView, "gifts");
+assert.equal(giftImages.length, 6, "All six supplied gift images are registered");
+developerGame.render();
+assert.ok(renderedText.includes("Recuerdo 1 de 6 · toca la imagen para ampliar"));
+click(developerGame, 640, 300);
+assert.equal(developerGame.giftViewerOpen, true, "The selected gift opens in the larger viewer");
+developerGame.handleMenuNavigation({ key: "ArrowRight", preventDefault: noop });
+assert.equal(developerGame.giftIndex, 1, "Keyboard navigation changes gifts while the viewer is enlarged");
+developerGame.handleMenuNavigation({ key: "ArrowLeft", preventDefault: noop });
+assert.equal(developerGame.giftIndex, 0);
+developerGame.handleMenuNavigation({ key: "ArrowLeft", preventDefault: noop });
+assert.equal(developerGame.giftIndex, 5, "Previous navigation wraps from the first gift to the last");
+developerGame.handleMenuNavigation({ key: "ArrowRight", preventDefault: noop });
+assert.equal(developerGame.giftIndex, 0, "Next navigation wraps from the last gift to the first");
+click(developerGame, 760, 600);
+assert.equal(developerGame.giftIndex, 1, "The enlarged viewer's next button changes the current image");
+click(developerGame, 550, 600);
+assert.equal(developerGame.giftIndex, 0, "The enlarged viewer's previous button changes the current image");
+click(developerGame, 980, 600);
+assert.equal(developerGame.giftViewerOpen, false, "The enlarged viewer can be closed with its button");
+click(developerGame, 320, 600);
+assert.equal(developerGame.menuView, "extras");
+click(developerGame, 640, 545);
+assert.equal(developerGame.menuView, "main");
+
+const futureUnlockKey = "future-character";
+developerGame.progression.registerUnlock(futureUnlockKey);
+developerGame.progression.registerCollection("future-collectibles", ["future-star", "future-item"]);
+assert.equal(developerGame.progression.isUnlocked(futureUnlockKey), true, "Future registered unlocks inherit the developer unlock-all mode");
+assert.equal(developerGame.progression.isCollected("future-collectibles", "future-item"), true, "Future registered collectibles are unlocked too");
+const restoredDeveloperProgress = new ProgressionManager({
+  getItem: (key) => storage.get(key) ?? null,
+  setItem: (key, value) => storage.set(key, String(value)),
+});
+assert.equal(restoredDeveloperProgress.isUnlocked(futureUnlockKey), true, "The unlock-all mode persists");
+storage.delete("principito-expansion-progreso-v1");
+storage.delete("principito-isabela-desbloqueada");
+
+// Nivel 4 mantiene una escala local, corre continuamente y conserva el récord.
+const arcadeStorage = new Map();
+const arcadeProgress = new Nivel4({ random: () => 0.4, storage: {
+  getItem: (key) => arcadeStorage.get(key) ?? null,
+  setItem: (key, value) => arcadeStorage.set(key, String(value)),
+} });
+const arcadeRunner = new Principito(0, 0);
+const normalRunnerSize = { width: arcadeRunner.width, height: arcadeRunner.height };
+arcadeProgress.start(arcadeRunner);
+assert.equal(arcadeRunner.width, Math.round(normalRunnerSize.width * 0.52));
+assert.equal(arcadeRunner.height, Math.round(normalRunnerSize.height * 0.52));
+assert.equal(new Principito(0, 0).width, 84, "The campaign character dimensions must stay unchanged");
+const arcadeInput = { getHorizontalDirection: () => 0, consumeJump: () => false };
+let arcadeZoneChanged = false;
+for (let frame = 0; frame < 900; frame += 1) {
+  const result = arcadeProgress.update(0.1, arcadeRunner, arcadeInput, true);
+  arcadeZoneChanged ||= result.zoneChanged;
+}
+assert.ok(arcadeProgress.distance > ZONE_LENGTH * 2, "The generated run should continue through multiple zones");
+assert.ok(arcadeProgress.score > 0);
+assert.ok(arcadeProgress.difficultyTier >= 2, "Run speed and difficulty should rise with distance");
+assert.ok(arcadeZoneChanged);
+assert.ok(arcadeProgress.segments.length > 0 && arcadeProgress.hazards.length > 0, "Segments and hazards continue generating ahead");
+assert.ok(arcadeProgress.segments.some((segment) => segment.safe), "The run periodically creates safe segments");
+assert.ok(arcadeProgress.segmentIndex > 40, "Procedural segment generation continues well beyond the initial map");
+assert.ok(arcadeProgress.segments.length < 12, "Old segments are pruned so the endless run keeps memory bounded");
+assert.ok(arcadeProgress.hazards.length < 20, "Old hazards are pruned during a long run");
+assert.ok(arcadeProgress.pickups.length < 8, "Old pickups are pruned during a long run");
+assert.equal(arcadeStorage.get("principito-nivel4-record"), String(arcadeProgress.bestScore));
+const restoredArcade = new Nivel4({ random: () => 0.4, storage: {
+  getItem: (key) => arcadeStorage.get(key) ?? null,
+  setItem: (key, value) => arcadeStorage.set(key, String(value)),
+} });
+assert.equal(restoredArcade.bestScore, arcadeProgress.bestScore, "The arcade record should persist across runs");
+const transitionRun = new Nivel4({ random: () => 0.4, storage: { getItem: () => null, setItem: noop } });
+const transitionRunner = new Principito(0, 0);
+transitionRun.start(transitionRunner);
+transitionRun.distance = ZONE_LENGTH - 1;
+const transitionInput = { getHorizontalDirection: () => 0, getVerticalDirection: () => 0, consumeJump: () => false };
+assert.equal(transitionRun.update(1 / 60, transitionRunner, transitionInput).zoneChanged, true);
+transitionRun.update(0.4, transitionRunner, transitionInput);
+assert.notEqual(transitionRun.getVisualZone().ground, transitionRun.zone.ground, "Zone palettes should crossfade instead of switching abruptly");
+const duckRun = new Nivel4({ random: () => 0.4, storage: { getItem: () => null, setItem: noop } });
+const duckRunner = new Principito(0, 0);
+duckRun.start(duckRunner);
+duckRun.hazards = [{ kind: "aerial", x: duckRunner.x + 100, y: 462, width: 54, height: 42, active: true, phase: 0 }];
+for (let frame = 0; frame < 35; frame += 1) duckRun.update(1 / 60, duckRunner, { ...arcadeInput, isCrouching: () => true });
+assert.equal(duckRunner.arcadeCrouching, true, "Holding crouch lowers the player's collision profile under flying enemies");
+assert.equal(duckRunner.y + duckRunner.height, 570, "Crouching keeps the player grounded");
+assert.ok(!duckRun.isOver, "Crouching safely passes the low flying enemy");
+duckRun.update(1 / 60, duckRunner, { ...arcadeInput, isCrouching: () => false });
+assert.equal(duckRunner.height, duckRunner.arcadeStandingHeight, "Releasing crouch restores the normal arcade hitbox");
+const chaseRun = new Nivel4({ random: () => 0.4, storage: { getItem: () => null, setItem: noop } });
+const chaseRunner = new Principito(0, 0);
+chaseRun.start(chaseRunner);
+const chargingEnemy = { kind: "enemy", x: chaseRunner.x + 650, y: 508, width: 46, height: 62, speed: 48, active: true, approaching: false };
+chaseRun.hazards = [chargingEnemy];
+chaseRun.update(1 / 60, chaseRunner, { ...arcadeInput, isCrouching: () => false });
+assert.equal(chargingEnemy.approaching, true, "Ground enemies start chasing when they enter the warning range");
+assert.ok(chargingEnemy.x < chaseRunner.x + 650);
+assert.ok(chargingEnemy.speed <= chaseRun.speed * 0.36, "A pursuing enemy remains slower than the runner and leaves a reaction window");
+const earlyEnemySpeed = chargingEnemy.speed;
+chaseRun.distance = 20_000;
+chaseRun.update(1 / 60, chaseRunner, { ...arcadeInput, isCrouching: () => false }, true);
+assert.ok(chargingEnemy.speed > earlyEnemySpeed, "Charging enemies accelerate as the run gets longer");
+const nycRun = new Nivel4({ random: () => 0.4, storage: { getItem: () => null, setItem: noop } });
+const nycRunner = new Principito(0, 0);
+nycRun.start(nycRunner);
+const valleyRun = new Nivel4({ random: () => 0.4, storage: { getItem: () => null, setItem: noop } });
+const valleyRunner = new Principito(0, 0);
+valleyRun.start(valleyRunner);
+valleyRun.distance = 4_999;
+valleyRun.update(1 / 60, valleyRunner, arcadeInput);
+assert.equal(valleyRun.zone.name, "VALLE DEL VIENTO", "The 5,000 m milestone changes to a new environment");
+nycRun.distance = 9_999;
+nycRun.update(1 / 60, nycRunner, arcadeInput);
+assert.equal(nycRun.zone.name, "NUEVA YORK DE NOCHE", "The 10,000 m milestone introduces the night-time New York scene");
+nycRun.update(0.4, nycRunner, arcadeInput);
+nycRun.drawBackground(context, { width: 1280, height: 720 }, 0, 0);
+assert.ok(renderedText.includes("NUEVA YORK DE NOCHE"), "The New York skyline zone renders its own transition label");
+for (const randomValue of [0.05, 0.15, 0.4, 0.66, 0.88]) {
+  const skillRun = new Nivel4({ random: () => randomValue, storage: { getItem: () => null, setItem: noop } });
+  const skillRunner = new Principito(0, 0);
+  skillRun.start(skillRunner);
+  let jumpRequested = false;
+  let crouchRequested = false;
+  let skillRunDied = false;
+  for (let frame = 0; frame < 3600 && !skillRunDied; frame += 1) {
+    const nextHazard = skillRun.hazards.filter((hazard) => hazard.active && hazard.x + hazard.width >= skillRunner.x).sort((a, b) => a.x - b.x)[0];
+    const hazardGap = nextHazard ? nextHazard.x - skillRunner.x - skillRunner.width : Infinity;
+    const closingSpeed = skillRun.speed + (nextHazard?.kind === "enemy" ? nextHazard.speed : 0);
+    crouchRequested = Boolean(nextHazard?.kind === "aerial" && hazardGap <= Math.max(150, skillRun.speed * 0.28) && skillRunner.isOnGround);
+    jumpRequested = Boolean(nextHazard && nextHazard.kind !== "aerial" && hazardGap <= Math.max(120, closingSpeed * 0.24) && skillRunner.isOnGround);
+    const result = skillRun.update(1 / 60, skillRunner, {
+      getHorizontalDirection: () => 0,
+      getVerticalDirection: () => 0,
+      isCrouching: () => crouchRequested,
+      consumeJump: () => { const requested = jumpRequested; jumpRequested = false; return requested; },
+    });
+    skillRunDied = result.died;
+  }
+  assert.equal(skillRunDied, false, `A well-timed jump strategy should survive a prolonged procedural run (random seed ${randomValue})`);
+  assert.ok(skillRun.distance > 10_000);
+  assert.ok(skillRun.difficultyTier >= 5, "The prolonged playable run must include advanced obstacle combinations");
+}
+const lethalRun = new Nivel4({ random: () => 0.4, storage: {
+  getItem: (key) => arcadeStorage.get(key) ?? null,
+  setItem: (key, value) => arcadeStorage.set(key, String(value)),
+} });
+const lethalRunner = new Isabela(0, 0);
+lethalRun.start(lethalRunner);
+lethalRun.hazards = [];
+for (let frame = 0; frame < 25; frame += 1) lethalRun.update(0.1, lethalRunner, arcadeInput);
+lethalRun.hazards = [{ x: lethalRunner.x, y: lethalRunner.y, width: 12, height: 12, active: true }];
+assert.equal(lethalRun.update(0.016, lethalRunner, arcadeInput).died, true, "A hazard ends a normal arcade run");
+assert.equal(lethalRun.isOver, true);
+assert.ok(lethalRun.bestScore > 0, "The final run score is saved before Game Over");
+
+// La integración del Nivel 4 usa el personaje seleccionado y el Game Over permite reiniciar.
+const { game: arcadeGame, events: arcadeEvents } = createGame();
+arcadeGame.progression.unlockEverything({ campaignStarIds: arcadeGame.getCampaignStarIds() });
+arcadeGame.refreshProgressionUnlocks();
+arcadeGame.selectedCharacter = "Isabela";
+assert.equal(arcadeGame.startLevel(4), undefined, "The unlocked arcade mode starts without changing the normal campaign route");
+assert.ok(arcadeGame.personajeActual instanceof Isabela);
+assert.equal(arcadeGame.levelNumber, 4);
+assert.ok(arcadeGame.personajeActual.width < 84, "The arcade scale is local to the selected character");
+assert.ok(arcadeEvents.includes("music:4"), "Starting a run requests the developer-provided Level 4 track");
+arcadeGame.input.pressedKeys.add(" ");
+arcadeGame.update(1 / 60);
+assert.equal(arcadeGame.personajeActual.jumpsUsed, 1, "The normal jump input is reused by the arcade mode");
+assert.ok(arcadeEvents.includes("jump"));
+arcadeGame.level.hazards = [{ x: arcadeGame.personajeActual.x, y: arcadeGame.personajeActual.y, width: 16, height: 16, active: true }];
+arcadeGame.update(1 / 60);
+assert.equal(arcadeGame.state, GameState.GAME_OVER);
+assert.ok(arcadeEvents.includes("stop"), "Game Over stops the current music");
+const arcadeScoreBeforeRetry = arcadeGame.level.score;
+assert.ok(arcadeScoreBeforeRetry > 0);
+click(arcadeGame, 640, 430);
+assert.equal(arcadeGame.state, GameState.JUGANDO, "The Game Over action begins a new endless run");
+assert.equal(arcadeGame.level.score, 0);
+assert.ok(arcadeGame.level.bestScore >= arcadeScoreBeforeRetry, "The best score survives a retry");
+assert.ok(arcadeGame.personajeActual instanceof Isabela, "A retry preserves the selected character");
+storage.delete("principito-expansion-progreso-v1");
 
 menuGame.unlockIsabela();
 assert.equal(storage.get("principito-isabela-desbloqueada"), "true");
 const { game: unlockedGame } = createGame();
 assert.equal(unlockedGame.isIsabelaUnlocked, true);
-click(unlockedGame, 640, 400);
+click(unlockedGame, 640, 214);
 assert.equal(unlockedGame.selectedCharacter, "Isabela");
 for (const [x, expectedLevel] of [[320, 1], [640, 2], [960, 3]]) {
   unlockedGame.returnToMenu();
   unlockedGame.lives = 1;
-  click(unlockedGame, x, 635);
+  click(unlockedGame, x, 545);
   assert.equal(unlockedGame.levelNumber, expectedLevel);
   assert.equal(unlockedGame.state, GameState.JUGANDO);
   assert.equal(unlockedGame.lives, 3, "Replaying a chapter starts with three lives");
   assert.equal(unlockedGame.personajeActual.lives, 3);
 }
+
+// Cada extra seleccionado instancia un personaje propio y conserva la compatibilidad con los tres capítulos.
+const { game: extraCharacterGame } = createGame();
+assert.equal(extraCharacterGame.campaignStarTotal, 54, "The global star percentage must include all three campaign levels and zones");
+const allCampaignStarIds = [new Nivel1(), new Nivel2(), new Nivel3()]
+  .flatMap((level) => level.zones.flatMap((zone) => zone.stars.map((star) => star.id)));
+assert.equal(new Set(allCampaignStarIds).size, 54, "Every campaign star must have a distinct persistent identity");
+const extraUnlockKeys = { Eren: "eren", Mikasa: "mikasa", "Kanye West": "kanye", "Eren Titan": "erenTitan" };
+for (const unlockKey of Object.values(extraUnlockKeys)) extraCharacterGame.progression.data.unlocked[unlockKey] = true;
+extraCharacterGame.progression.completeCampaign();
+extraCharacterGame.progression.save();
+extraCharacterGame.refreshProgressionUnlocks();
+const extraCharacterTypes = { Eren, Mikasa, "Kanye West": KanyeWest, "Eren Titan": ErenTitan };
+const extraCharacterCells = { Eren: [1060, 220], Mikasa: [220, 320], "Kanye West": [640, 320], "Eren Titan": [1060, 320] };
+for (const [name, CharacterType] of Object.entries(extraCharacterTypes)) {
+  extraCharacterGame.returnToMenu();
+  click(extraCharacterGame, 1100, 615);
+  assert.equal(extraCharacterGame.menuView, "extras");
+  click(extraCharacterGame, 640, 220);
+  assert.equal(extraCharacterGame.menuView, "characters");
+  click(extraCharacterGame, ...extraCharacterCells[name]);
+  assert.equal(extraCharacterGame.selectedCharacter, name, `${name} should be selectable after unlock`);
+  for (const levelNumber of [1, 2, 3]) {
+    extraCharacterGame.startLevel(levelNumber);
+    assert.ok(extraCharacterGame.personajeActual instanceof CharacterType, `${name} should be playable in chapter ${levelNumber}`);
+    assert.ok(extraCharacterGame.personajeActual instanceof Personaje, `${name} must reuse the shared movement and combat systems`);
+    if (name === "Eren Titan") {
+      assert.ok(extraCharacterGame.personajeActual.y + extraCharacterGame.personajeActual.height <= 640, "Eren Titan must spawn above, not inside, the ground platform");
+      for (let frame = 0; frame < 120; frame += 1) extraCharacterGame.update(1 / 60);
+      assert.ok(extraCharacterGame.personajeActual.y < 600, `Eren Titan should settle onto a platform and stay in the world in chapter ${levelNumber}`);
+    }
+    const startX = extraCharacterGame.personajeActual.x;
+    extraCharacterGame.input.handleKeyDown({ key: "d", preventDefault: noop });
+    extraCharacterGame.update(1 / 60);
+    extraCharacterGame.input.handleKeyUp({ key: "d" });
+    assert.ok(extraCharacterGame.personajeActual.x > startX, `${name} should move through the shared controls in chapter ${levelNumber}`);
+    extraCharacterGame.personajeActual.enableDoubleJump();
+    assert.equal(extraCharacterGame.personajeActual.maxJumps, 2);
+    extraCharacterGame.personajeActual.hasSword = true;
+    extraCharacterGame.personajeActual.hasSling = true;
+    for (const state of ["IDLE", "RUN", "JUMP", "FALL", "ATTACK", "HURT", "VICTORY", "INTERACTION"]) {
+      extraCharacterGame.personajeActual.state = state;
+      extraCharacterGame.personajeActual.draw(context);
+    }
+    extraCharacterGame.render();
+  }
+  extraCharacterGame.startLevel(4);
+  assert.ok(extraCharacterGame.personajeActual instanceof CharacterType, `${name} should also be selectable in the endless arcade`);
+  assert.ok(extraCharacterGame.personajeActual.width < 84, "Arcade character scaling must stay local to Level 4");
+  extraCharacterGame.update(1 / 60);
+}
+
+const { game: uniqueStarGame } = createGame();
+uniqueStarGame.startLevel(1);
+const firstCampaignStar = uniqueStarGame.level.stars[0];
+uniqueStarGame.personajeActual.x = firstCampaignStar.x;
+uniqueStarGame.personajeActual.y = firstCampaignStar.y;
+uniqueStarGame.checkStarCollisions();
+assert.equal(uniqueStarGame.progression.getStarProgress().obtained, 1);
+uniqueStarGame.restartCurrentLevel();
+const sameCampaignStar = uniqueStarGame.level.stars[0];
+assert.equal(sameCampaignStar.id, firstCampaignStar.id, "A star keeps the same identity after restarting the level");
+uniqueStarGame.personajeActual.x = sameCampaignStar.x;
+uniqueStarGame.personajeActual.y = sameCampaignStar.y;
+uniqueStarGame.checkStarCollisions();
+assert.equal(uniqueStarGame.progression.getStarProgress().obtained, 1, "Collecting the respawned star cannot count twice globally");
 
 // En celular se puede pasar de capítulo tocando el lienzo o el control táctil, sin Enter.
 const { game: tapContinueGame } = createGame();
@@ -589,4 +940,4 @@ assert.equal(hardBossGame.lives, hardStartingLives - 1);
 assert.equal(hardBossGame.level.currentZoneIndex, 0);
 assert.equal(hardBossGame.bossHitsTaken, 0);
 
-console.log("E10 verification passed: gameplay, mobile touch progression/fullscreen, three difficulties, boss, finale, rendering, audio, and publication checks.");
+console.log("Gameplay verification passed: campaign, mobile input, extras, endless Level 4, progressive zones/difficulty, records, Game Over, audio routes, and publication checks.");

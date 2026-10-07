@@ -1,5 +1,21 @@
 # Progreso del proyecto
 
+## Expansión de contenido — Fase 2 (EXPANSION.md)
+
+| Bloque | Estado |
+|---|---|
+| A — Progresión y desbloqueos | COMPLETADO (2026-10-07) |
+| B — Personajes extras | COMPLETADO (2026-10-07) |
+| C — Contenido EXTRAS y libro | COMPLETADO (galería de regalos actualizada con 6 imágenes; contenido del libro pendiente) |
+| D — Nivel 4 base | IMPLEMENTADO; comprobación visual/audio pendiente |
+| E — Nivel 4 avanzado | IMPLEMENTADO; comprobación visual/audio pendiente |
+| F — Modo difícil | Pendiente |
+| G — Pruebas generales | Pendiente |
+
+## Último bloque de expansión
+
+Bloques A, B, C, D y E implementados. La comprobación automatizada de D/E pasó; queda pendiente revisar el render en viewport horizontal y probar la pista cuando el desarrollador la proporcione. No se inicia F ni G.
+
 ## Fase 2
 
 | Bloque | Estado |
@@ -20,7 +36,7 @@
 
 ## Etapa actual
 
-Fase 2 — E2 Vidas globales y dificultades completado. Próximo bloque pendiente: E3 — Objetos y enemigos.
+La hoja de ruta original E0–E10 permanece en E2 completado, con E3 pendiente. En la expansión, A–E están implementados; no se ha iniciado F ni G.
 
 ## Etapas completadas
 
@@ -101,6 +117,34 @@ Se inspeccionó directamente `referencias/isabela/referencia-isabela.jpeg`. Pres
 - Los controles móviles solo se muestran durante `JUGANDO`, en dispositivos de puntero táctil y orientación horizontal, para no superponerse con menús, pausa, Game Over o final.
 
 ## Cambios recientes verificados
+
+### Expansión — Bloque A: progresión y desbloqueos
+
+- Se añadió ProgressionManager, que mantiene una única colección persistente de estrellas por identificador, el total vigente, capítulos completados en Normal y Difícil, y las banderas de desbloqueo de EXTRAS, Nivel 4, Eren, Eren Titan, Mikasa y Kanye West. Si localStorage no está disponible, el juego conserva el progreso de la sesión sin detenerse.
+- Las estrellas de campaña tienen IDs estables por capítulo, zona e índice. El catálogo real contiene 54 estrellas únicas en los tres capítulos y sus zonas. Recoger una estrella tras muerte, reinicio o en otra sesión no duplica el progreso. Eren se habilita al llegar al 70% (38/54); Eren Titan únicamente al 100% (54/54).
+- La finalización individual de capítulos se registra con la dificultad activa. Los tres capítulos completados en Normal habilitan a Mikasa; los tres en Difícil habilitan a Kanye West. El cierre de la campaña habilita y persiste EXTRAS y la bandera de acceso al Nivel 4. Se conserva el desbloqueo existente de Isabela; si ya estaba guardado, se migra como campaña completada.
+- Las notificaciones de personaje aparecen al cumplir sus condiciones. La interfaz del menú muestra el conteo global de estrellas y el progreso de selección. La navegación a la sección de libro/regalos corresponde al Bloque C, y el modo Nivel 4 a D/E.
+
+### Expansión — Bloque B: personajes extras jugables
+
+- Antes de crear los sprites se localizaron y abrieron las cuatro referencias reales: referencias/referencia-extra/eren-ref.jpeg, mikasa-ref.jpeg, kanyewest-ref.jpeg y erentitan-ref.jpeg. La carpeta presente es referencia-extra (singular), no la ruta plural ilustrativa del documento. Se inspeccionaron rasgos, paletas, ropa y siluetas; ninguna referencia se utilizó como sprite del juego.
+- Se añadieron Eren, Mikasa, Kanye West y Eren Titan como sprites pixel-art Canvas originales, integrados con ExtraPersonaje y la clase compartida Personaje. Se conservaron, respectivamente, el abrigo oscuro/camisa clara; el cabello bob, bufanda roja y correajes; el suéter naranja/azul a rayas y calzado claro; y la melena larga, ojos verdes, dientes y cuerpo musculoso de Eren Titan.
+- El selector principal incluye los cuatro personajes extra con estado bloqueado/desbloqueado. El desbloqueo efectivo permite seleccionarlos para jugar los mismos niveles; el selector no crea mapas paralelos. Todos heredan movimiento, gravedad, salto, doble salto, ataques, vidas, daño, colisiones, cámara, teclado y entrada táctil. El sistema de creación de personaje admite futuros modos desde la misma fábrica; el Nivel 4 todavía no existe y no se implementó en este bloque.
+- Verificación: node tests/final-check.mjs pasó; todos los módulos JavaScript pasaron node --check. Las pruebas cubren deduplicación persistente de estrellas, 70%/100%, completación independiente Normal/Difícil, persistencia de desbloqueos, bloqueo de personajes no obtenidos y movimiento/renderizado de los cuatro extras en Niveles 1–3, incluyendo sus estados visuales. La inspección en navegador mostró el nuevo selector, el Principito en juego y los cuatro sprites extras en Canvas; el archivo temporal de previsualización se retiró.
+
+### Expansión — Bloque C: menú EXTRAS, lector y galería
+
+- El menú principal muestra solo Principito e Isabela; los cuatro personajes extra se eligen dentro de EXTRAS → PERSONAJES. Los personajes bloqueados muestran candado y su requisito vigente: Eren 70% de estrellas, Eren Titan 100%, Mikasa campaña en Normal y Kanye West campaña en Difícil. Isabela indica completar la campaña.
+- Se añadió navegación de EXTRAS, selección de personajes, lector por páginas y galería de regalos con ampliación de imagen. Escape vuelve a la vista anterior; flechas y Enter permiten navegación de teclado, y los paneles funcionan mediante clic/toque. El lector queda preparado para el contenido del libro.
+- Se redujo el panel del código en escritorio y móvil. `amor` activa inmortalidad y `unlockEverything()` persistente: completa la campaña, registra todas las estrellas, desbloquea las banderas existentes y cualquier bandera/colección registrada después, incluidos personajes y coleccionables futuros.
+- Se corrigió la caída de Eren Titan: los puntos de aparición están calibrados para 148 px, pero Titan medía 158 px y comenzaba penetrando 10 px el suelo. El creador/respawn ahora alinea los pies de personajes más altos con la altura de referencia; no cambia la física ni dimensiones globales de los personajes.
+- Verificación: `node tests/final-check.mjs` pasó. Las pruebas validan el menú reducido, requisitos de desbloqueo, navegación de libro/regalos, desbloqueo futuro persistente y a Eren Titan asentándose dentro de los tres niveles. Los recursos de libro/regalos permanecen pendientes de proporcionar.
+
+### Galería EXTRAS — imágenes añadidas
+
+- Se incorporaron las seis imágenes presentes en `assets/regalos/` al catálogo de `giftImages`, con texto alternativo y rutas locales codificadas para los espacios en los nombres.
+- Se mantiene el avance y retroceso circular con botones y flechas. Los controles anterior/siguiente también permanecen visibles y funcionales con la imagen ampliada; el visor se cierra con `Cerrar`, `Volver`, Escape o tocando nuevamente la imagen.
+- `node tests/final-check.mjs` valida que las seis rutas existen, que se abre el visor, el cambio en ambas direcciones, el recorrido circular y el cierre.
 
 ### Fase 2 — E0 Auditoría
 
@@ -213,7 +257,26 @@ Se inspeccionó directamente `referencias/isabela/referencia-isabela.jpeg`. Pres
 ## Problemas conocidos
 
 - Las pistas finales y los seis efectos de sonido aún no han sido proporcionados como archivos. El sistema está listo para recibirlos en las rutas documentadas y mantiene efectos sintetizados mientras tanto. La pista concreta del Nivel 3 debe ser seleccionada manualmente por el desarrollador, tal como indica el proyecto.
+- La pista de Nivel 4 aún no ha sido proporcionada. Su ruta queda configurada en `assets/audio/music/nivel-4/nivel-4.mp3`; el modo inicia la solicitud de música y continúa jugable en silencio si el archivo falta. La reproducción real queda pendiente hasta incorporar la pista.
+- La validación visual en navegador de D/E queda pendiente porque el viewport de navegador disponible en esta sesión está en orientación vertical y muestra correctamente `GIRA TU DISPOSITIVO`; no fue posible cambiarlo a horizontal con las herramientas disponibles. La comprobación de render Canvas y la simulación técnica sí pasaron.
+
+## Expansión — Bloques D y E: Nivel 4 arcade
+
+- Se inspeccionaron directamente `referencias/nivel-4/ref-1.png`, `ref-2.png` y `ref-3.png`. Orientaron una escala local reducida del jugador (52%, sin cambiar dimensiones globales), terreno amplio, montañas en capas parallax, luz atmosférica y paletas que varían del atardecer cálido a zonas frías y nocturnas. El juego usa arte Canvas propio; ninguna referencia se reutilizó como fondo.
+- D: se añadió `Nivel4`, un modo arcade infinito accesible desde EXTRAS una vez desbloqueado. Genera segmentos continuos con suelo, obstáculos, enemigos y recompensas; mantiene avance constante con ajuste de ritmo por ←/→, reutiliza salto y controles existentes, y aplica escala únicamente dentro del Nivel 4 al personaje seleccionado (incluidos los extras desbloqueados).
+- El HUD arcade muestra puntuación, récord, distancia y zona. El récord se guarda en `localStorage` (`principito-nivel4-record`). Una colisión produce Game Over, detiene la música y ofrece nueva carrera o menú; reintentar reconstruye el modo desde cero sin borrar el récord ni cambiar personaje.
+- E: la velocidad aumenta gradualmente hasta su tope y se amplían los tipos de peligros por distancia. Hay tramos seguros con recompensa periódicos y cuatro zonas visuales cíclicas con fondos, relieve, color de terreno e iluminación propios; una transición de color de 1.6 s y rótulo anuncian el cambio. En alta dificultad las parejas de peligros tienen mayor separación y el segmento siguiente queda como recuperación para preservar tiempo de aterrizaje y reacción.
+- La pista configurable está en `assets/audio/music/nivel-4/nivel-4.mp3`; se reinicia al iniciar una carrera y se detiene al salir o perder. No se añadió ni generó música. La prueba real de reproducción queda pendiente del archivo aportado por el desarrollador.
+- Verificación técnica: `node --check` de los módulos afectados y `node tests/final-check.mjs` pasaron. El chequeo automatiza recorridos de 60 segundos con cinco secuencias deterministas, dificultad avanzada sin modo invencible, transiciones de paleta, segmentos seguros, puntuación/distancia, Game Over, persistencia del récord, retry y selección/escala de Principito, Isabela y los personajes extras. La misma suite mantiene pruebas de regresión de los Niveles 1–3.
+- Estado: implementación D/E lista; no se inicia F ni G. El cierre total de D/E queda pendiente de inspección visual en viewport horizontal y de probar la pista cuando esté disponible.
+
+### Nivel 4 — agacharse, enemigos de persecución y Nueva York nocturna
+
+- Se añadió agacharse con `S`/`↓` en PC y un botón táctil que aparece únicamente al jugar Nivel 4. La hitbox baja y el sprite se comprime verticalmente sin cambiar las dimensiones normales ni la física de campaña; al soltar o saltar recupera su altura arcade normal.
+- Los enemigos voladores pasan a volar bajo para exigir agacharse. Los enemigos terrestres ahora se acercan al jugador al entrar en un rango de aviso; su velocidad crece con la distancia, pero queda limitada a un 36% de la velocidad del jugador, manteniendo margen para reaccionar y saltar. Se añadieron estelas y aviso visual cercano.
+- Los cambios de entorno ocurren en hitos de 5.000 m. A los 5.000 m cambia a Valle del Viento y a los 10.000 m entra Nueva York de noche: edificios en capas parallax, ventanas iluminadas, luna y marcas de carretera, con transición gradual junto a la paleta. Los fondos conservan capas atmosféricas inspiradas en la composición de los capítulos 1–3.
+- Validación: `node --check` y `node tests/final-check.mjs` pasan. Se probaron controles de teclado y táctiles, pasar bajo enemigos voladores, aceleración limitada de perseguidores, hitos de 5.000/10.000 m y cinco recorridos procedurales de 60 segundos que combinan salto y agacharse.
 
 ## Próximo paso
 
-- No hay una etapa posterior definida. Para una publicación con audio definitivo, el desarrollador debe añadir las cuatro pistas y los seis efectos en las rutas documentadas; no requiere cambios de código.
+- No iniciar los Bloques F o G hasta nueva autorización. Para cerrar la verificación de D/E, abrir el juego en viewport horizontal y probar la música cuando se añada `assets/audio/music/nivel-4/nivel-4.mp3`.

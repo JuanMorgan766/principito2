@@ -2,6 +2,7 @@ const MUSIC_TRACKS = {
   1: "assets/audio/music/nivel-1.mp3",
   2: "assets/audio/music/nivel-2.mp3",
   3: "assets/audio/music/nivel-3.mp3",
+  4: "assets/audio/music/nivel-4/nivel-4.mp3",
   final: "assets/audio/music/final.mp3",
 };
 
