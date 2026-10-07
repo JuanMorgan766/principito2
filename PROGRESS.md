@@ -277,6 +277,14 @@ Se inspeccionó directamente `referencias/isabela/referencia-isabela.jpeg`. Pres
 - Los cambios de entorno ocurren en hitos de 5.000 m. A los 5.000 m cambia a Valle del Viento y a los 10.000 m entra Nueva York de noche: edificios en capas parallax, ventanas iluminadas, luna y marcas de carretera, con transición gradual junto a la paleta. Los fondos conservan capas atmosféricas inspiradas en la composición de los capítulos 1–3.
 - Validación: `node --check` y `node tests/final-check.mjs` pasan. Se probaron controles de teclado y táctiles, pasar bajo enemigos voladores, aceleración limitada de perseguidores, hitos de 5.000/10.000 m y cinco recorridos procedurales de 60 segundos que combinan salto y agacharse.
 
+## Expansión — Bloque F: Modo difícil de campaña
+
+- DIFÍCIL agrega un enemigo adicional en cada zona de los tres capítulos, ubicado sobre una plataforma ya existente con su patrulla dentro de los límites transitables. La implementación pertenece al ajuste de dificultad de la zona activa; no altera globalmente niveles ni plataformas.
+- Los enemigos extra se aplican una sola vez, desaparecen al cambiar a Fácil o Normal y pueden volver a aplicarse al regresar a Difícil. Fácil y Normal conservan las cantidades de enemigos originales; sus multiplicadores de velocidad siguen siendo 0,9 y 1,0, mientras DIFÍCIL mantiene 1,15.
+- Se preservaron los apoyos de progresión: el poder de doble salto y el jetpack del Capítulo 1, los objetivos de salida del Capítulo 2, y la espada junto con suficientes enemigos para desbloquear el doble salto del Capítulo 3. Las zonas mantienen sus rutas y objetivos.
+- Verificación automatizada: `node tests/final-check.mjs` pasó, incluyendo chequeos de los tres capítulos, colocación sobre plataformas, ausencia de duplicados, retirada al salir de DIFÍCIL, rutas/objetivos de zonas, poderes y regresiones de campaña existentes. Todos los archivos JavaScript pasaron `node --check`.
+- Estado: Bloque F implementado y validación automatizada aprobada. La prueba confirma estructura y progresión de las rutas en DIFÍCIL; no equivale a una sesión manual de juego humano en hardware real.
+
 ## Próximo paso
 
 - No iniciar los Bloques F o G hasta nueva autorización. Para cerrar la verificación de D/E, abrir el juego en viewport horizontal y probar la música cuando se añada `assets/audio/music/nivel-4/nivel-4.mp3`.

@@ -20,6 +20,7 @@ import { Eren } from "./entities/Eren.js";
 import { Mikasa } from "./entities/Mikasa.js";
 import { KanyeWest } from "./entities/KanyeWest.js";
 import { ErenTitan } from "./entities/ErenTitan.js";
+import { Enemigo } from "./entities/Enemigo.js";
 import { ProgressionManager } from "./systems/ProgressionManager.js";
 import { bookPages, giftImages } from "./data/extraContent.js";
 
@@ -52,6 +53,22 @@ const DIFFICULTIES = {
   facil: { label: "FÁCIL", enemySpeed: 0.9 },
   normal: { label: "NORMAL", enemySpeed: 1 },
   dificil: { label: "DIFÍCIL", enemySpeed: 1.15 },
+};
+// Encuentros adicionales exclusivos de DIFÍCIL. Cada enemigo se coloca sobre
+// una plataforma ya existente y se mantiene dentro de sus límites.
+const HARD_MODE_ENEMIES = {
+  1: {
+    jardin: [[2050, 435, 2000, 2160, "baobab"]],
+    aerea: [[2700, 525, 2670, 2790, "baobab"]],
+  },
+  2: {
+    "sendero-del-zorro": [[1990, 410, 1950, 2130, "serpiente"]],
+    "jardines-sumergidos": [[2420, 520, 2370, 2490, "acuatico"]],
+  },
+  3: {
+    "sendero-del-umbral": [[880, 525, 865, 955, "serpiente"]],
+    "ruinas-estelares": [[1200, 395, 1170, 1300, "baobab"]],
+  },
 };
 
 export class Game {
@@ -316,6 +333,19 @@ export class Game {
 
   applyDifficultyToActiveZone() {
     const multiplier = DIFFICULTIES[this.difficulty].enemySpeed;
+    const zone = this.level.activeZone;
+    const hardEnemies = zone?.hardModeEnemies ?? [];
+    if (this.difficulty === "dificil" && zone) {
+      zone.hardModeEnemies ??= (HARD_MODE_ENEMIES[this.level.id]?.[zone.id] ?? []).map(([x, platformY, patrolStart, patrolEnd, type]) => {
+        const enemy = new Enemigo(x, platformY - 60, patrolStart, patrolEnd, type);
+        enemy.isHardModeExtra = true;
+        return enemy;
+      });
+      const missingEnemies = zone.hardModeEnemies.filter((enemy) => !this.level.enemies.includes(enemy));
+      this.level.enemies.push(...missingEnemies);
+    } else if (this.difficulty !== "dificil" && hardEnemies.length) {
+      this.level.enemies = this.level.enemies.filter((enemy) => !hardEnemies.includes(enemy));
+    }
     this.level.enemies.forEach((enemy) => {
       enemy.speed = enemy.baseSpeed * multiplier;
     });

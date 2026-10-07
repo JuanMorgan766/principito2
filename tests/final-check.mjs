@@ -702,6 +702,55 @@ assert.equal(storage.get("principito-dificultad"), "dificil");
 assert.equal(game.difficulty, "dificil");
 assert.equal(game.level.enemies[0].speed, game.level.enemies[0].baseSpeed * 1.15);
 
+// Bloque F: modo difícil añade encuentros de plataforma sin alterar Normal/Fácil.
+for (const chapter of [1, 2, 3]) {
+  const { game: difficultyGame } = createGame();
+  difficultyGame.setDifficulty("normal");
+  difficultyGame.startLevel(chapter);
+  const normalCount = difficultyGame.level.enemies.length;
+  difficultyGame.setDifficulty("dificil");
+  assert.equal(difficultyGame.level.enemies.length, normalCount + 1, `Chapter ${chapter} adds one hard-only platform enemy`);
+  const extra = difficultyGame.level.enemies.find((enemy) => enemy.isHardModeExtra);
+  assert.ok(extra, `Chapter ${chapter} has an additional hard-mode enemy`);
+  assert.ok(difficultyGame.level.platforms.some((platform) => extra.x >= platform.x
+    && extra.x + extra.width <= platform.x + platform.width
+    && Math.abs(extra.y + extra.height - platform.y) < 0.001), `Chapter ${chapter} extra enemy stands on a reachable existing platform`);
+  difficultyGame.applyDifficultyToActiveZone();
+  assert.equal(difficultyGame.level.enemies.filter((enemy) => enemy.isHardModeExtra).length, 1, "Reapplying hard difficulty does not duplicate encounters");
+  difficultyGame.setDifficulty("normal");
+  assert.equal(difficultyGame.level.enemies.length, normalCount, "Returning to normal removes hard-only enemies");
+  difficultyGame.setDifficulty("facil");
+  assert.equal(difficultyGame.level.enemies.length, normalCount, "Easy remains unchanged");
+  assert.equal(difficultyGame.level.enemies[0].speed, difficultyGame.level.enemies[0].baseSpeed * 0.9);
+
+  for (let zoneIndex = 0; zoneIndex < difficultyGame.level.zones.length; zoneIndex += 1) {
+    difficultyGame.level.activateZone(zoneIndex);
+    difficultyGame.applyDifficultyToActiveZone();
+    const zone = difficultyGame.level.activeZone;
+    assert.ok(difficultyGame.level.goal || zone.goal || zone.tuberia || zone.zoneExit || zone.waterExit || zone.bossArena
+      || zone.properties?.tuberia || zone.properties?.zoneExit || zone.properties?.waterExit || zone.properties?.bossArena,
+      `Chapter ${chapter}, zone ${zoneIndex + 1} retains its progression/exit objective`);
+    if (zoneIndex < difficultyGame.level.zones.length - 1) {
+      assert.ok(difficultyGame.level.platforms.length > 1, `Chapter ${chapter}, zone ${zoneIndex + 1} retains its platform route`);
+    }
+  }
+}
+const { game: hardChapterOne } = createGame();
+hardChapterOne.setDifficulty("dificil");
+hardChapterOne.startLevel(1);
+assert.ok(hardChapterOne.level.doubleJumpPower?.active, "The Chapter 1 double-jump power remains available in hard mode");
+hardChapterOne.level.activateZone(1);
+hardChapterOne.personajeActual.activateJetpack();
+hardChapterOne.applyDifficultyToActiveZone();
+assert.equal(hardChapterOne.personajeActual.jetpackFuelLimited, true, "Hard mode keeps its limited jetpack mechanic");
+assert.ok(hardChapterOne.personajeActual.jetpackFuel > 0);
+const { game: hardChapterThree } = createGame();
+hardChapterThree.setDifficulty("dificil");
+hardChapterThree.startLevel(3);
+assert.ok(hardChapterThree.level.sword?.active, "The Chapter 3 sword remains available in hard mode");
+assert.ok(hardChapterThree.level.enemies.length >= hardChapterThree.level.doubleJumpUnlockKills,
+  "The first Chapter 3 zone has enough enemies to unlock the required double jump");
+
 // Fase 2 E1: las zonas del Nivel 1 y la Tubería se activan explícitamente.
 const { game: episodeGame, events: episodeEvents } = createGame();
 episodeGame.startLevel(1);
