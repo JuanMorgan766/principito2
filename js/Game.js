@@ -31,9 +31,11 @@ export class Game {
     this.context = canvas.getContext("2d");
     if (!this.context) throw new Error("No fue posible crear el contexto 2D del canvas.");
     this.state = GameState.MENU;
+    this.developerMode = false;
     this.lastFrameTime = 0;
     this.input = new InputManager();
     this.input.bindTouchControls(document);
+    this.bindDeveloperCodePanel();
     this.audio = new AudioManager();
     this.selectedCharacter = "Principito";
     this.isIsabelaUnlocked = this.readIsabelaUnlock();
@@ -144,10 +146,49 @@ export class Game {
     this.refreshTouchControlLabels();
   }
 
+  startChapter(number) {
+    this.lives = 3;
+    this.startLevel(number);
+  }
+
   startNewGame() {
     this.lives = 3;
     this.level3BonusGranted = false;
     this.startLevel(1);
+  }
+
+  bindDeveloperCodePanel() {
+    const form = document.querySelector("#developerCodeForm");
+    const input = document.querySelector("#developerCodeInput");
+    const status = document.querySelector("#developerCodeStatus");
+    if (!form?.addEventListener || !input?.addEventListener) return;
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const activated = this.activateDeveloperMode(input.value);
+      if (status) status.textContent = activated ? "Modo inmortal activado" : "Código incorrecto";
+      if (activated) {
+        input.value = "";
+        input.blur?.();
+      }
+    });
+    input.addEventListener("pointerdown", () => {
+      try { input.focus({ preventScroll: true }); } catch { input.focus(); }
+    });
+
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton?.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "touch") return;
+      event.preventDefault();
+      form.requestSubmit?.();
+    });
+  }
+
+  activateDeveloperMode(code) {
+    if (String(code).trim().toLowerCase() !== "amor") return false;
+    this.developerMode = true;
+    this.showMessage("MODO DESARROLLADOR · INMORTAL", 4);
+    return true;
   }
 
   applyDifficultyToActiveZone() {
@@ -204,8 +245,9 @@ export class Game {
 
   updateMobileControlsVisibility() {
     const controls = document.querySelector(".mobile-controls");
-    if (!controls) return;
-    controls.classList.toggle("is-visible", this.state === GameState.JUGANDO);
+    if (controls) controls.classList.toggle("is-visible", this.state === GameState.JUGANDO);
+    const developerPanel = document.querySelector(".developer-code");
+    if (developerPanel) developerPanel.hidden = this.state !== GameState.MENU;
     this.updateTubeEntryControl();
   }
 
@@ -235,7 +277,7 @@ export class Game {
       this.togglePause();
       return;
     }
-    if (this.state === GameState.NIVEL_COMPLETADO && this.input.consumeContinue()) return this.startLevel(this.levelNumber + 1);
+    if (this.state === GameState.NIVEL_COMPLETADO && this.input.consumeContinue()) return this.startChapter(this.levelNumber + 1);
     if (this.state === GameState.FINAL) {
       if (this.input.consumeContinue()) this.advanceFinalSequence();
       this.updateFinalSequence(deltaTime);
@@ -281,7 +323,10 @@ export class Game {
     this.refreshTouchControlLabels();
     this.checkObjective();
     if (this.level.id === 1 && this.level.currentZoneIndex === 1 && this.personajeActual.y > this.canvas.height + 35) {
-      this.handlePlayerDeath();
+      if (this.developerMode) {
+        this.personajeActual.respawn(this.level.spawn.x, this.level.spawn.y);
+        this.camera.follow(this.personajeActual);
+      } else this.handlePlayerDeath();
       return;
     }
     this.camera.follow(this.personajeActual);
@@ -329,6 +374,7 @@ export class Game {
 
   handleBossHit() {
     const player = this.personajeActual;
+    if (this.developerMode) return false;
     if (player.invulnerabilityTime > 0) return false;
     if (this.difficulty === "facil" || this.difficulty === "normal") {
       this.bossHitsTaken += 1;
@@ -410,6 +456,7 @@ export class Game {
   }
 
   handlePlayerDeath() {
+    if (this.developerMode) return false;
     if (this.personajeActual.invulnerabilityTime > 0 || this.lives <= 0) return false;
     this.personajeActual.takeDamage();
     this.lives = Math.max(0, this.lives - 1);
@@ -613,7 +660,7 @@ export class Game {
       return;
     }
     if (this.state === GameState.NIVEL_COMPLETADO) {
-      this.startLevel(this.levelNumber + 1);
+      this.startChapter(this.levelNumber + 1);
       return;
     }
     if (this.state === GameState.FINAL) {
@@ -626,9 +673,9 @@ export class Game {
     else if (y >= 462 && y <= 515) this.setDifficulty(x < 510 ? "facil" : x < 770 ? "normal" : "dificil");
     else if (y >= 535 && y <= 590) this.startNewGame();
     else if (this.isIsabelaUnlocked && y >= 605 && y <= 649) {
-      if (x >= 205 && x <= 435) this.startLevel(1);
-      else if (x >= 525 && x <= 755) this.startLevel(2);
-      else if (x >= 845 && x <= 1075) this.startLevel(3);
+      if (x >= 205 && x <= 435) this.startChapter(1);
+      else if (x >= 525 && x <= 755) this.startChapter(2);
+      else if (x >= 845 && x <= 1075) this.startChapter(3);
     }
   }
 
@@ -1234,6 +1281,13 @@ export class Game {
       c.fillText(abilities, 566, abilityY + 29);
     }
     if (this.boss && this.level.bossArena && !this.boss.isDefeated) this.drawBossHealth();
+
+    if (this.developerMode) {
+      c.fillStyle = "rgb(55 35 62 / 90%)"; c.beginPath(); c.roundRect(510, 18, 260, 34, 13); c.fill();
+      c.strokeStyle = "#f2c6ff"; c.lineWidth = 1; c.stroke();
+      c.fillStyle = "#ffe0ff"; c.font = "bold 12px Arial"; c.textAlign = "center";
+      c.fillText("MODO DESARROLLADOR · INMORTAL", 640, 40);
+    }
 
     c.fillStyle = "rgb(16 26 48 / 62%)"; c.beginPath(); c.roundRect(this.canvas.width - 344, 18, 324, 47, 18); c.fill();
     c.textAlign = "center"; c.fillStyle = "#fff7c2"; c.font = "17px Arial";

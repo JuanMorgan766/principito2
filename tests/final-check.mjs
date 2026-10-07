@@ -6,6 +6,23 @@ const storage = new Map();
 const renderedText = [];
 const documentListeners = new Map();
 let fullscreenRequests = 0;
+const developerFormListeners = new Map();
+const developerButtonListeners = new Map();
+const developerInputListeners = new Map();
+const developerCodeInput = {
+  value: "",
+  addEventListener: (name, callback) => developerInputListeners.set(name, callback),
+  focus: noop,
+  blur: noop,
+};
+const developerCodeStatus = { textContent: "" };
+const developerSubmitButton = { addEventListener: (name, callback) => developerButtonListeners.set(name, callback) };
+const developerCodeForm = {
+  hidden: true,
+  addEventListener: (name, callback) => developerFormListeners.set(name, callback),
+  querySelector: () => developerSubmitButton,
+  requestSubmit() { developerFormListeners.get("submit")?.({ preventDefault: noop }); },
+};
 const gradient = { addColorStop: noop };
 const context = new Proxy({}, {
   get: (target, key) => {
@@ -38,7 +55,13 @@ globalThis.document = {
   addEventListener: (name, callback) => documentListeners.set(name, callback),
   documentElement: { requestFullscreen() { fullscreenRequests += 1; return Promise.resolve(); } },
   fullscreenElement: null,
-  querySelector: () => ({ classList: { toggle: noop } }),
+  querySelector: (selector) => {
+    if (selector === ".mobile-controls") return { classList: { toggle: noop } };
+    if (selector === ".developer-code" || selector === "#developerCodeForm") return developerCodeForm;
+    if (selector === "#developerCodeInput") return developerCodeInput;
+    if (selector === "#developerCodeStatus") return developerCodeStatus;
+    return null;
+  },
   querySelectorAll: () => [],
 };
 globalThis.localStorage = {
@@ -129,6 +152,33 @@ documentListeners.get("gesturestart")({ preventDefault: () => { safariGesturePre
 assert.equal(safariGesturePrevented, true, "Safari gesture zoom must be prevented");
 click(menuGame, 640, 400);
 assert.equal(menuGame.selectedCharacter, "Principito");
+
+// Código de desarrollador: el botón activa inmortalidad sin gastar vidas ni reiniciar el capítulo.
+const { game: developerGame } = createGame();
+assert.equal(developerCodeForm.hidden, false, "The code panel should appear in the menu");
+developerCodeInput.value = "incorrecto";
+developerFormListeners.get("submit")({ preventDefault: noop });
+assert.equal(developerGame.developerMode, false);
+assert.equal(developerCodeStatus.textContent, "Código incorrecto");
+developerCodeInput.value = " amor ";
+let developerButtonDefaultPrevented = false;
+developerButtonListeners.get("pointerdown")({ pointerType: "touch", preventDefault: () => { developerButtonDefaultPrevented = true; } });
+assert.equal(developerButtonDefaultPrevented, true);
+assert.equal(developerGame.developerMode, true);
+assert.equal(developerCodeStatus.textContent, "Modo inmortal activado");
+developerGame.startLevel(2);
+assert.equal(developerCodeForm.hidden, true, "The code panel should be hidden during gameplay");
+developerGame.level.enemies = [{ active: true, x: developerGame.personajeActual.x, y: developerGame.personajeActual.y, width: 40, height: 40, draw: noop }];
+developerGame.checkEnemyCollisions();
+assert.equal(developerGame.lives, 3);
+assert.equal(developerGame.levelNumber, 2);
+assert.equal(developerGame.handleBossHit(), false);
+assert.equal(developerGame.lives, 3);
+developerGame.render();
+assert.ok(renderedText.includes("MODO DESARROLLADOR · INMORTAL"));
+developerGame.returnToMenu();
+assert.equal(developerCodeForm.hidden, false);
+
 menuGame.unlockIsabela();
 assert.equal(storage.get("principito-isabela-desbloqueada"), "true");
 const { game: unlockedGame } = createGame();
@@ -137,21 +187,32 @@ click(unlockedGame, 640, 400);
 assert.equal(unlockedGame.selectedCharacter, "Isabela");
 for (const [x, expectedLevel] of [[320, 1], [640, 2], [960, 3]]) {
   unlockedGame.returnToMenu();
+  unlockedGame.lives = 1;
   click(unlockedGame, x, 635);
   assert.equal(unlockedGame.levelNumber, expectedLevel);
   assert.equal(unlockedGame.state, GameState.JUGANDO);
+  assert.equal(unlockedGame.lives, 3, "Replaying a chapter starts with three lives");
+  assert.equal(unlockedGame.personajeActual.lives, 3);
 }
 
 // En celular se puede pasar de capítulo tocando el lienzo o el control táctil, sin Enter.
 const { game: tapContinueGame } = createGame();
 tapContinueGame.startLevel(1);
+tapContinueGame.lives = 1;
+tapContinueGame.personajeActual.lives = 1;
 tapContinueGame.state = GameState.NIVEL_COMPLETADO;
 tapContinueGame.handleCanvasClick({ clientX: 640, clientY: 360 });
 assert.equal(tapContinueGame.levelNumber, 2);
+assert.equal(tapContinueGame.lives, 3, "Touching to continue starts the next chapter with three lives");
+assert.equal(tapContinueGame.personajeActual.lives, 3);
+tapContinueGame.lives = 2;
+tapContinueGame.personajeActual.lives = 2;
 tapContinueGame.state = GameState.NIVEL_COMPLETADO;
 tapContinueGame.input.activateTouchControl("enter");
 tapContinueGame.update(1 / 60);
 assert.equal(tapContinueGame.levelNumber, 3);
+assert.equal(tapContinueGame.lives, 3, "Touch control progression resets lives for the next chapter");
+assert.equal(tapContinueGame.personajeActual.lives, 3);
 
 // Los tres capítulos reutilizan el personaje seleccionado y la cámara.
 for (const levelNumber of [1, 2, 3]) {

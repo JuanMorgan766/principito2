@@ -21,6 +21,14 @@
       >
         Tu navegador no es compatible con Canvas.
       </canvas>
+      <form class="developer-code" id="developerCodeForm" autocomplete="off" hidden>
+        <label for="developerCodeInput">CÓDIGO</label>
+        <div class="developer-code__controls">
+          <input id="developerCodeInput" name="developerCode" type="text" maxlength="20" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Código de desarrollador" />
+          <button type="submit">ACTIVAR</button>
+        </div>
+        <p id="developerCodeStatus" role="status" aria-live="polite"></p>
+      </form>
     </main>
 
     <section class="mobile-controls" aria-label="Controles táctiles">
