@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#101728" />
+    <meta
+      name="description"
+      content="Principito, una aventura web de plataformas en 2D."
+    />
+    <title>Principito</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <main class="game-container">
+      <canvas
+        id="gameCanvas"
+        width="1280"
+        height="720"
+        aria-label="Área de juego de Principito"
+      >
+        Tu navegador no es compatible con Canvas.
+      </canvas>
+    </main>
+
+    <section class="mobile-controls" aria-label="Controles táctiles">
+      <div class="mobile-controls__movement">
+        <button type="button" data-control="left" aria-label="Mover a la izquierda">←</button>
+        <button type="button" data-control="right" aria-label="Mover a la derecha">→</button>
+      </div>
+      <div class="mobile-controls__actions">
+        <button type="button" data-control="jump">SALTO</button>
+        <button type="button" data-control="attack">⚔</button>
+        <button type="button" class="mobile-controls__enter" data-control="enter">ENTRAR</button>
+        <button type="button" data-control="pause">Ⅱ</button>
+      </div>
+    </section>
+
+    <section id="orientationMessage" class="orientation-message" aria-live="polite">
+      <p>GIRA TU DISPOSITIVO</p>
+      <span>Este viaje se disfruta en horizontal.</span>
+    </section>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

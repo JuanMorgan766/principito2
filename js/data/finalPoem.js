@@ -1,0 +1,22 @@
+// Poema final proporcionado por el desarrollador.
+export const finalPoem = [
+  "Gracias por existir,",
+  "por esforzarte en completar el juego,",
+  "espero lo hayas disfrutado.",
+  "",
+  "Esto es una pequeña muestra",
+  "del amor tan grande que te tengo.",
+  "",
+  "Espero nuestra relación siempre sea un juego",
+  "que siempre podamos completar,",
+  "y del cual siempre lleguemos",
+  "a un final feliz.",
+  "",
+  "Con cariño,",
+  "para mí Izzyta.",
+  "",
+  "Besos, besos,",
+  "y se te quiere",
+  "desde lo más fresa",
+  "del pedazo Bosa, jejeje.",
+];
